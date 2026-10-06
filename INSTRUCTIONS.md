@@ -150,3 +150,7 @@ The buttons do what they say; **Delete user** needs you to type `DELETE`, remove
 | `npm run build` / `npm start` | production build / run it |
 | `npm test` | 63 backend tests; uses a temporary local file, never your Turso data |
 | `npm run db:init` | check the Turso credentials and list the tables |
+
+## Using it like a phone app
+
+The public site is built mobile-first: full screen on a phone (it respects the notch and the home bar, and the message box stays above the keyboard), and a centred phone-sized app on a desktop. It is also installable: on a phone open `https://texttox.fewinfos.com`, then **Share → Add to Home Screen** (iPhone) or **menu → Install app** (Android). It then opens full screen with its own icon and no browser bars. The icons live in `public/` (`icon-192.png`, `icon-512.png`, `icon-maskable-512.png`) and `src/app/apple-icon.png`; the admin page keeps its own desktop style.

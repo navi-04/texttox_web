@@ -124,8 +124,8 @@ export default function App() {
     );
   } else if (!view) {
     screen = (
-      <main className="page">
-        <div className="spinner" role="status" aria-label="Loading" />
+      <main className="x-screen x-center" role="status" aria-label="Loading">
+        <div className="x-spinner" />
       </main>
     );
   } else if (inPublic) {
@@ -167,13 +167,13 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="x-app">
       {screen}
-      {offline && !signedOut && (
-        <div className="offline" role="status">
+      {offline && !signedOut && !inPublic && (
+        <div className="x-toast" role="status">
           Reconnecting…
         </div>
       )}
-    </>
+    </div>
   );
 }

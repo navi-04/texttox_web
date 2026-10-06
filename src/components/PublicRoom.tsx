@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messageOf, post } from "@/lib/client";
 import type { PublicMessageView } from "@/lib/public";
+import { ArrowUp, Back, Group } from "./Icons";
 
 const MAX = 500;
 const DAY = 24 * 60 * 60 * 1000;
@@ -99,23 +100,25 @@ export default function PublicRoom({ onBack, onSignedOut }: { onBack: () => void
   }
 
   return (
-    <div className="chat">
-      <header className="chat-head">
-        <div className="chat-top">
-          <div className="who">
-            <strong>Public room</strong>
-            <span className="muted small">Everyone is anonymous · messages vanish after 48 hours</span>
-          </div>
-          <div className="actions">
-            <button className="link" onClick={onBack}>
-              Leave
-            </button>
-          </div>
+    <div className="x-chat">
+      <header className="x-chat-bar">
+        <button className="x-icon-btn" aria-label="Leave the public room" onClick={onBack}>
+          <Back />
+        </button>
+        <span className="x-avatar" aria-hidden>
+          <Group size={22} />
+        </span>
+        <div className="x-chat-id">
+          <strong>Public room</strong>
+          <span className="x-status">
+            <i className={offline ? "" : "on"} />
+            {offline ? "Reconnecting…" : "Everyone is anonymous · gone after 48 h"}
+          </span>
         </div>
       </header>
 
       <div
-        className="messages"
+        className="x-log"
         ref={listRef}
         aria-live="polite"
         onScroll={(e) => {
@@ -123,24 +126,24 @@ export default function PublicRoom({ onBack, onSignedOut }: { onBack: () => void
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
       >
-        {!loaded && <div className="spinner" role="status" aria-label="Loading" style={{ alignSelf: "center", margin: "24px 0" }} />}
-        {loaded && messages.length === 0 && <p className="info">Nobody has said anything yet. Be the first.</p>}
+        {!loaded && <div className="x-spinner" role="status" aria-label="Loading" style={{ alignSelf: "center", margin: "28px 0" }} />}
+        {loaded && messages.length === 0 && <p className="x-chip">Nobody has said anything yet. Be the first.</p>}
         {messages.map((m) => (
-          <div key={m.id} className={`bubble ${m.mine ? "mine" : "theirs"}`}>
+          <div key={m.id} className={`x-b ${m.mine ? "mine" : "theirs"}`}>
             {m.text}
             <time>{time(m.at)}</time>
           </div>
         ))}
       </div>
 
-      {(error || offline) && (
-        <p className="error" role="alert" style={{ margin: "0 16px 8px" }}>
-          {error || "Reconnecting…"}
+      {error && (
+        <p className="x-error" role="alert" style={{ margin: "0 14px 10px" }}>
+          {error}
         </p>
       )}
 
       <form
-        className="composer"
+        className="x-composer"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
@@ -148,17 +151,16 @@ export default function PublicRoom({ onBack, onSignedOut }: { onBack: () => void
       >
         <textarea
           ref={inputRef}
-          className="field"
           rows={1}
           maxLength={MAX}
           placeholder="Say something to everyone"
           aria-label="Message"
+          enterKeyHint="send"
           value={draft}
-          autoFocus
           onChange={(e) => {
             setDraft(e.target.value);
             e.target.style.height = "auto";
-            e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+            e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px";
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -167,8 +169,8 @@ export default function PublicRoom({ onBack, onSignedOut }: { onBack: () => void
             }
           }}
         />
-        <button className="btn" disabled={!draft.trim() || sending}>
-          Send
+        <button className="x-send" aria-label="Send" disabled={!draft.trim() || sending}>
+          <ArrowUp />
         </button>
       </form>
     </div>

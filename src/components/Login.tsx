@@ -2,11 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { messageOf, post } from "@/lib/client";
-import { TopLine } from "./Screens";
+import { Logo } from "./Icons";
 
 /** signin = username or email + password. signup and reset both go: email -> emailed code -> choose a password (signup also a username). */
 type Mode = "signin" | "signup" | "reset";
 type Step = "email" | "code" | "password";
+
+const STEP_NO: Record<Step, number> = { email: 1, code: 2, password: 3 };
+
+function Steps({ step }: { step: Step }) {
+  return (
+    <div className="x-steps" role="img" aria-label={`Step ${STEP_NO[step]} of 3`}>
+      {[1, 2, 3].map((n) => (
+        <i key={n} className={n <= STEP_NO[step] ? "on" : ""} />
+      ))}
+    </div>
+  );
+}
 
 export default function Login({ onDone }: { onDone: () => void }) {
   const [mode, setMode] = useState<Mode>("signin");
@@ -99,24 +111,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
     });
   };
 
-  const idField = (
-    <input
-      className="field"
-      type={mode === "signin" ? "text" : "email"}
-      inputMode={mode === "signin" ? "text" : "email"}
-      autoComplete="username"
-      autoCapitalize="none"
-      autoCorrect="off"
-      spellCheck={false}
-      placeholder={mode === "signin" ? "Username or email" : "you@example.com"}
-      aria-label={mode === "signin" ? "Username or email" : "Email"}
-      value={id}
-      onChange={(e) => setId(e.target.value)}
-      autoFocus
-    />
-  );
   const errorBox = error && (
-    <p className="error" role="alert">
+    <p className="x-error" role="alert">
       {error}
     </p>
   );
@@ -125,30 +121,41 @@ export default function Login({ onDone }: { onDone: () => void }) {
 
   if (mode === "signin") {
     body = (
-      <form className="stack" onSubmit={signIn} noValidate style={{ gap: 20 }}>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>Talk to anyone, anonymously.</h1>
-          <p className="muted">Sign in with your username or email, and your password.</p>
-        </div>
-        {idField}
-        <input
-          className="field"
-          type="password"
-          autoComplete="current-password"
-          placeholder="Password"
-          aria-label="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+      <form className="x-form" onSubmit={signIn} noValidate>
+        <h1 className="x-h">Sign in</h1>
+        <label className="x-lab">
+          <span>Username or email</span>
+          <input
+            className="x-input"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+          />
+        </label>
+        <label className="x-lab">
+          <span>Password</span>
+          <input
+            className="x-input"
+            type="password"
+            autoComplete="current-password"
+            enterKeyHint="go"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
         {errorBox}
-        <button className="btn" disabled={busy || !id.trim() || !password}>
+        <button className="x-btn" disabled={busy || !id.trim() || !password}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
-        <div className="footer">
-          <button type="button" className="link" onClick={() => go("reset")}>
+        <div className="x-links">
+          <button type="button" className="x-link" onClick={() => go("reset")}>
             Forgot password?
           </button>
-          <button type="button" className="link" onClick={() => go("signup")}>
+          <button type="button" className="x-link strong" onClick={() => go("signup")}>
             Create account
           </button>
         </div>
@@ -156,22 +163,38 @@ export default function Login({ onDone }: { onDone: () => void }) {
     );
   } else if (step === "email") {
     body = (
-      <form className="stack" onSubmit={sendCode} noValidate style={{ gap: 20 }}>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>{mode === "signup" ? "Create your account" : "Reset your password"}</h1>
-          <p className="muted">
+      <form className="x-form" onSubmit={sendCode} noValidate>
+        <Steps step="email" />
+        <div className="x-stack" style={{ gap: 6 }}>
+          <h1 className="x-h">{mode === "signup" ? "Create account" : "Reset password"}</h1>
+          <p className="x-sub">
             {mode === "signup"
-              ? "Enter your email. We'll send you a code, just this once, so you can pick a username and a password."
-              : "Enter your email and we'll send you a code so you can choose a new password."}
+              ? "Enter your email. We'll send a code, just this once, so you can pick a username and a password."
+              : "Enter your email and we'll send a code so you can choose a new password."}
           </p>
         </div>
-        {idField}
+        <label className="x-lab">
+          <span>Email</span>
+          <input
+            className="x-input"
+            type="email"
+            inputMode="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            placeholder="you@example.com"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+          />
+        </label>
         {errorBox}
-        <button className="btn" disabled={busy || !id.trim()}>
+        <button className="x-btn" disabled={busy || !id.trim()}>
           {busy ? "Sending…" : "Send code"}
         </button>
-        <div className="footer">
-          <button type="button" className="link" onClick={() => go("signin")}>
+        <div className="x-links center">
+          <button type="button" className="x-link" onClick={() => go("signin")}>
             Back to sign in
           </button>
         </div>
@@ -179,108 +202,108 @@ export default function Login({ onDone }: { onDone: () => void }) {
     );
   } else if (step === "code") {
     body = (
-      <div className="stack" style={{ gap: 20 }}>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>Check your email</h1>
-          <p className="muted">
+      <div className="x-form">
+        <Steps step="code" />
+        <div className="x-stack" style={{ gap: 6 }}>
+          <h1 className="x-h">Check your email</h1>
+          <p className="x-sub">
             If <strong style={{ color: "var(--fg)" }}>{email()}</strong> can be used here, a 6-digit code is on its way. It may take a minute; check spam too.
           </p>
         </div>
         <input
-          className="field code"
+          className="x-input x-code"
+          aria-label="6-digit code"
           inputMode="numeric"
           autoComplete="one-time-code"
           maxLength={6}
           placeholder="······"
-          aria-label="6-digit code"
           value={code}
           onChange={(e) => {
             const v = e.target.value.replace(/\D/g, "").slice(0, 6);
             setCode(v);
             if (v.length === 6) verify(v);
           }}
-          autoFocus
         />
         {errorBox}
-        <button className="btn" disabled={busy || code.length !== 6} onClick={() => verify(code)}>
+        <button className="x-btn" disabled={busy || code.length !== 6} onClick={() => verify(code)}>
           {busy ? "Checking…" : "Continue"}
         </button>
-        <div className="footer">
-          <button className="link" onClick={() => { setStep("email"); setError(""); }}>
-            Use a different email
+        <div className="x-links">
+          <button
+            className="x-link"
+            onClick={() => {
+              setStep("email");
+              setError("");
+            }}
+          >
+            Different email
           </button>
-          <button className="link" disabled={wait > 0 || busy} onClick={() => sendCode()}>
+          <button className="x-link strong" disabled={wait > 0 || busy} onClick={() => sendCode()}>
             {wait > 0 ? `Resend in ${wait}s` : "Resend code"}
           </button>
         </div>
-        <p className="muted small">
-          {mode === "signup" ? "Already have an account? " : "No account yet? "}
-          <button className="link" onClick={() => go(mode === "signup" ? "signin" : "signup")}>
-            {mode === "signup" ? "Sign in instead" : "Create one"}
-          </button>
-        </p>
       </div>
     );
   } else {
     body = (
-      <form className="stack" onSubmit={savePassword} noValidate style={{ gap: 20 }}>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>{mode === "signup" ? "Pick a username and password" : "Choose a new password"}</h1>
-          <p className="muted">
+      <form className="x-form" onSubmit={savePassword} noValidate>
+        <Steps step="password" />
+        <div className="x-stack" style={{ gap: 6 }}>
+          <h1 className="x-h">{mode === "signup" ? "Username & password" : "New password"}</h1>
+          <p className="x-sub">
             {mode === "signup"
               ? "Your username is how you sign in, and what you can choose to show in a chat. It can’t be changed later."
               : "Use something you haven’t used anywhere else."}
           </p>
         </div>
         {mode === "signup" && (
-          <input
-            className="field"
-            autoComplete="off"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            maxLength={20}
-            placeholder="Username (letters, numbers, _)"
-            aria-label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoFocus
-          />
+          <label className="x-lab">
+            <span>Username</span>
+            <input
+              className="x-input"
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={20}
+              placeholder="letters, numbers, _"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </label>
         )}
-        <input
-          className="field"
-          type="password"
-          autoComplete="new-password"
-          placeholder="Password (at least 8 characters)"
-          aria-label="New password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoFocus={mode !== "signup"}
-        />
-        <input
-          className="field"
-          type="password"
-          autoComplete="new-password"
-          placeholder="Repeat password"
-          aria-label="Repeat password"
-          value={repeat}
-          onChange={(e) => setRepeat(e.target.value)}
-        />
+        <label className="x-lab">
+          <span>Password</span>
+          <input
+            className="x-input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="at least 8 characters"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label className="x-lab">
+          <span>Repeat password</span>
+          <input className="x-input" type="password" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(e.target.value)} />
+        </label>
         {errorBox}
-        <button className="btn" disabled={busy || !password || !repeat || (mode === "signup" && !username.trim())}>
+        <button className="x-btn" disabled={busy || !password || !repeat || (mode === "signup" && !username.trim())}>
           {busy ? "Saving…" : mode === "signup" ? "Create account" : "Save password"}
         </button>
-        {mode === "reset" && <p className="muted small">This signs you out on any other device.</p>}
+        {mode === "reset" && <p className="x-small" style={{ textAlign: "center" }}>This signs you out on any other device.</p>}
       </form>
     );
   }
 
   return (
-    <main className="page">
-      <div className="card">
-        <TopLine />
-        {body}
+    <main className="x-screen">
+      <div className="x-hero">
+        <Logo size={mode === "signin" || step === "email" ? 76 : 56} />
+        <h2 className="x-title">Text to X</h2>
+        <p className="x-tagline">Anonymous chat. One to one, random, or everyone.</p>
       </div>
+      {body}
     </main>
   );
 }

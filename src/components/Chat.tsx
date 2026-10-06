@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { messageOf, post } from "@/lib/client";
 import type { ChatView, MessageView } from "@/lib/state";
-import Modal from "./Modal";
+import Dialog from "./Dialog";
+import { ArrowUp, Back, Flag } from "./Icons";
 
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -93,46 +94,48 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
     }
   }
 
+  const name = partner.revealed ? partner.handle : "Stranger";
   const status = ended ? "Chat ended" : `${partner.revealed ? "Username visible" : "Anonymous"} · ${partner.online ? "online" : "offline"}`;
 
   return (
-    <div className="chat">
-      <header className="chat-head">
-        <div className="chat-top">
-          <div className="who">
-            <strong>{partner.revealed ? partner.handle : "Stranger"}</strong>
-            <span className="muted small">{status}</span>
-          </div>
-          <div className="actions">
-            <button className="link" disabled={hasReported} onClick={() => setDialog("report")}>
-              {hasReported ? "Reported" : "Report"}
-            </button>
-            {!ended && (
-              <button className="link" onClick={() => setDialog("leave")}>
-                Leave
-              </button>
-            )}
-          </div>
+    <div className="x-chat">
+      <header className="x-chat-bar">
+        <button className="x-icon-btn" aria-label={ended ? "Close chat" : "Leave chat"} onClick={() => (ended ? void leave() : setDialog("leave"))}>
+          <Back />
+        </button>
+        <span className="x-avatar" aria-hidden>
+          {partner.revealed && partner.handle ? partner.handle[0].toUpperCase() : "?"}
+        </span>
+        <div className="x-chat-id">
+          <strong>{name}</strong>
+          <span className="x-status">
+            <i className={!ended && partner.online ? "on" : ""} />
+            {status}
+          </span>
         </div>
-        {!ended && (
-          <div className="privacy">
-            <span id="anon-label">{iAmAnonymous ? "You are anonymous" : "Your username is visible to them"}</span>
-            <button
-              className="switch"
-              role="switch"
-              aria-checked={iAmAnonymous}
-              aria-labelledby="anon-label"
-              disabled={toggling}
-              onClick={() => (iAmAnonymous ? setDialog("reveal") : setAnonymous(true))}
-            />
-          </div>
-        )}
+        <button className="x-icon-btn" aria-label={hasReported ? "Reported" : "Report this chat"} disabled={hasReported} onClick={() => setDialog("report")}>
+          <Flag />
+        </button>
       </header>
 
-      {hasReported && <div className="notice">Reported. Thanks for letting us know.</div>}
+      {!ended && (
+        <div className="x-anon">
+          <span id="anon-label">{iAmAnonymous ? "You are anonymous" : "Your username is visible"}</span>
+          <button
+            className="x-switch"
+            role="switch"
+            aria-checked={iAmAnonymous}
+            aria-labelledby="anon-label"
+            disabled={toggling}
+            onClick={() => (iAmAnonymous ? setDialog("reveal") : setAnonymous(true))}
+          />
+        </div>
+      )}
+
+      {hasReported && <div className="x-notice">Reported. Thanks for letting us know.</div>}
 
       <div
-        className="messages"
+        className="x-log"
         ref={listRef}
         aria-live="polite"
         onScroll={(e) => {
@@ -142,11 +145,11 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
       >
         {messages.map((m) =>
           m.kind === "info" ? (
-            <p key={m.id} className="info">
+            <p key={m.id} className="x-chip">
               {m.text}
             </p>
           ) : (
-            <div key={m.id} className={`bubble ${m.mine ? "mine" : "theirs"}`}>
+            <div key={m.id} className={`x-b ${m.mine ? "mine" : "theirs"}`}>
               {m.text}
               <time>{time(m.at)}</time>
             </div>
@@ -155,21 +158,21 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
       </div>
 
       {error && (
-        <p className="error" role="alert" style={{ margin: "0 16px 8px" }}>
+        <p className="x-error" role="alert" style={{ margin: "0 14px 10px" }}>
           {error}
         </p>
       )}
 
       {ended ? (
-        <div className="ended">
-          <p className="muted small">This chat has ended.</p>
-          <button className="btn" disabled={busy} onClick={leave} style={{ minWidth: 200 }}>
+        <div className="x-ended">
+          <p className="x-small">This chat has ended.</p>
+          <button className="x-btn" disabled={busy} onClick={leave}>
             Start a new chat
           </button>
         </div>
       ) : (
         <form
-          className="composer"
+          className="x-composer"
           onSubmit={(e) => {
             e.preventDefault();
             void send();
@@ -177,17 +180,16 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
         >
           <textarea
             ref={inputRef}
-            className="field"
             rows={1}
             maxLength={1000}
-            placeholder="Type a message"
+            placeholder="Message"
             aria-label="Message"
+            enterKeyHint="send"
             value={draft}
-            autoFocus
             onChange={(e) => {
               setDraft(e.target.value);
               e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+              e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px";
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -196,59 +198,53 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
               }
             }}
           />
-          <button className="btn" disabled={!draft.trim()}>
-            Send
+          <button className="x-send" aria-label="Send" disabled={!draft.trim()}>
+            <ArrowUp />
           </button>
         </form>
       )}
 
-      <Modal open={dialog === "reveal"} onClose={() => setDialog(null)} title="Show your username?">
-        <p className="muted">
-          Your partner will see <strong style={{ color: "var(--fg)" }}>{myHandle}</strong>, which tells them who you are. You can switch back to
-          anonymous, but they will already have seen it.
+      <Dialog open={dialog === "reveal"} onClose={() => setDialog(null)} title="Show your username?">
+        <p className="x-sub">
+          Your partner will see <strong style={{ color: "var(--fg)" }}>{myHandle}</strong>, which tells them who you are. You can switch back to anonymous, but they
+          will already have seen it.
         </p>
-        <div className="stack">
-          <button className="btn" onClick={() => setAnonymous(false)}>
-            Yes, show it
-          </button>
-          <button className="btn ghost" onClick={() => setDialog(null)}>
-            Stay anonymous
-          </button>
-        </div>
-      </Modal>
+        <button className="x-btn" onClick={() => setAnonymous(false)}>
+          Yes, show it
+        </button>
+        <button className="x-btn ghost" onClick={() => setDialog(null)}>
+          Stay anonymous
+        </button>
+      </Dialog>
 
-      <Modal open={dialog === "report"} onClose={() => setDialog(null)} title="Report this chat">
-        <p className="muted">The conversation, and who is in it, is sent to the site admin to review. Your partner isn&rsquo;t told.</p>
-        <div className="stack">
-          <textarea
-            className="field"
-            rows={3}
-            maxLength={300}
-            placeholder="What happened? (optional)"
-            aria-label="Reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-          <button className="btn" disabled={busy} onClick={report}>
-            Send report
-          </button>
-          <button className="btn ghost" onClick={() => setDialog(null)}>
-            Cancel
-          </button>
-        </div>
-      </Modal>
+      <Dialog open={dialog === "report"} onClose={() => setDialog(null)} title="Report this chat">
+        <p className="x-sub">The conversation, and who is in it, is sent to the site admin to review. Your partner isn&rsquo;t told.</p>
+        <textarea
+          className="x-text"
+          rows={3}
+          maxLength={300}
+          placeholder="What happened? (optional)"
+          aria-label="Reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+        <button className="x-btn" disabled={busy} onClick={report}>
+          Send report
+        </button>
+        <button className="x-btn ghost" onClick={() => setDialog(null)}>
+          Cancel
+        </button>
+      </Dialog>
 
-      <Modal open={dialog === "leave"} onClose={() => setDialog(null)} title="Leave this chat?">
-        <p className="muted">The chat ends for both of you and can&rsquo;t be opened again.</p>
-        <div className="stack">
-          <button className="btn" disabled={busy} onClick={leave}>
-            Leave chat
-          </button>
-          <button className="btn ghost" onClick={() => setDialog(null)}>
-            Stay
-          </button>
-        </div>
-      </Modal>
+      <Dialog open={dialog === "leave"} onClose={() => setDialog(null)} title="Leave this chat?">
+        <p className="x-sub">The chat ends for both of you and can&rsquo;t be opened again.</p>
+        <button className="x-btn" disabled={busy} onClick={leave}>
+          Leave chat
+        </button>
+        <button className="x-btn ghost" onClick={() => setDialog(null)}>
+          Stay
+        </button>
+      </Dialog>
     </div>
   );
 }

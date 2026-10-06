@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { messageOf, post } from "@/lib/client";
+import { Back, Chevron, Group, Lock, Logo, Person, Shuffle } from "./Icons";
 
 type Gender = "boy" | "girl";
 export type Want = Gender | "any";
@@ -27,25 +28,19 @@ function OnlineCount() {
       clearInterval(timer);
     };
   }, []);
-  return n > 0 ? <span className="online">{n} online</span> : null;
+  return n > 0 ? <span className="x-pill">{n} online</span> : <span />;
 }
 
-/** The wordmark: "Text to X", with the X in the accent colour. */
-export function Brand() {
+/** Top bar: the app mark and name on the left, who is online on the right. */
+export function TopBar() {
   return (
-    <p className="brand">
-      Text to <span className="brand-x">X</span>
-    </p>
-  );
-}
-
-/** Brand name on the left, live online count on the right. */
-export function TopLine() {
-  return (
-    <div className="topline">
-      <Brand />
+    <header className="x-bar">
+      <div className="x-brand">
+        <Logo size={34} />
+        <span>Text to X</span>
+      </div>
       <OnlineCount />
-    </div>
+    </header>
   );
 }
 
@@ -70,23 +65,26 @@ function GenderPick({ onDone }: { onDone: () => void }) {
 
   return (
     <>
-      <div className="stack" style={{ gap: 8 }}>
-        <h1>One quick thing</h1>
-        <p className="muted">I am a&hellip; This is only used to match you with the right person in a specific chat, and it can&rsquo;t be changed later.</p>
+      <div className="x-stack" style={{ gap: 8 }}>
+        <h1 className="x-h">I am a&hellip;</h1>
+        <p className="x-sub">Only used to match you in a specific chat. It can&rsquo;t be changed later.</p>
       </div>
-      <div className="row">
+      <div className="x-picks">
         {(["boy", "girl"] as const).map((g) => (
-          <button key={g} className="choice" aria-pressed={gender === g} onClick={() => setGender(g)}>
+          <button key={g} className="x-pick" aria-pressed={gender === g} onClick={() => setGender(g)}>
+            <span className="x-ico">
+              <Person />
+            </span>
             {g === "boy" ? "Boy" : "Girl"}
           </button>
         ))}
       </div>
       {error && (
-        <p className="error" role="alert">
+        <p className="x-error" role="alert">
           {error}
         </p>
       )}
-      <button className="btn" disabled={!gender || busy} onClick={save}>
+      <button className="x-btn" style={{ marginTop: "auto" }} disabled={!gender || busy} onClick={save}>
         {busy ? "Saving…" : "Continue"}
       </button>
     </>
@@ -120,82 +118,78 @@ export function Home({ handle, gender, onStart, onPublic, onGenderSaved, onLogou
   }
 
   const errorBox = error && (
-    <p className="error" role="alert">
+    <p className="x-error" role="alert">
       {error}
     </p>
   );
 
-  let body: React.ReactNode;
-  if (section === "specific" && !gender) {
-    body = (
-      <>
-        <GenderPick onDone={onGenderSaved} />
-        <button className="link" onClick={() => setSection("menu")}>
-          &larr; Back
-        </button>
-      </>
-    );
-  } else if (section === "specific") {
-    body = (
-      <>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>Who do you want to chat with?</h1>
-          <p className="muted">You&rsquo;ll be paired with someone who&rsquo;s online right now and wants to talk to someone like you.</p>
-        </div>
-        <div className="row">
-          <button className="choice" disabled={busy !== null} onClick={() => start("boy")}>
-            A boy
+  if (section === "specific") {
+    return (
+      <main className="x-screen">
+        <header className="x-bar">
+          <button className="x-icon-btn" aria-label="Back" onClick={() => setSection("menu")}>
+            <Back />
           </button>
-          <button className="choice" disabled={busy !== null} onClick={() => start("girl")}>
-            A girl
-          </button>
-        </div>
-        {errorBox}
-        <button className="link" onClick={() => setSection("menu")}>
-          &larr; Back
-        </button>
-      </>
-    );
-  } else {
-    body = (
-      <>
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>How do you want to chat?</h1>
-          <p className="muted">Whichever you pick, nobody will know who you are unless you choose to show your username.</p>
-        </div>
-        <div className="stack">
-          <button className="mode" disabled={busy !== null} onClick={() => setSection("specific")}>
-            <strong>Specific chat</strong>
-            <span className="muted small">Choose to talk to a boy or a girl. One-to-one and private.</span>
-          </button>
-          <button className="mode" disabled={busy !== null} onClick={() => start("any")}>
-            <strong>Random chat</strong>
-            <span className="muted small">Get paired with anyone else who picked this. Boy or girl, no filter.</span>
-          </button>
-          <button className="mode" disabled={busy !== null} onClick={onPublic}>
-            <strong>Public room</strong>
-            <span className="muted small">Everyone in one anonymous group chat. Messages vanish after 48 hours.</span>
-          </button>
-        </div>
-        {errorBox}
-        <p className="muted small">
-          Private chats aren&rsquo;t saved &mdash; they&rsquo;re deleted once both of you leave. Be kind; you can report anyone who isn&rsquo;t.
-        </p>
-      </>
+          <span className="x-brand">Specific chat</span>
+          <span style={{ width: 40 }} />
+        </header>
+        {!gender ? (
+          <GenderPick onDone={onGenderSaved} />
+        ) : (
+          <>
+            <div className="x-stack" style={{ gap: 8 }}>
+              <h1 className="x-h">Talk to a&hellip;</h1>
+              <p className="x-sub">You&rsquo;ll be paired with someone online right now who wants to talk to someone like you.</p>
+            </div>
+            <div className="x-picks">
+              {(["boy", "girl"] as const).map((g) => (
+                <button key={g} className="x-pick" disabled={busy !== null} onClick={() => start(g)}>
+                  <span className="x-ico">
+                    <Person />
+                  </span>
+                  {g === "boy" ? "A boy" : "A girl"}
+                </button>
+              ))}
+            </div>
+            {errorBox}
+          </>
+        )}
+      </main>
     );
   }
 
+  const cards = [
+    { icon: <Lock />, title: "Specific chat", text: "Choose a boy or a girl. Private, one to one.", go: () => setSection("specific") },
+    { icon: <Shuffle />, title: "Random chat", text: "Paired with anyone else who picked this.", go: () => start("any") },
+    { icon: <Group />, title: "Public room", text: "One anonymous room for everyone. Gone after 48 hours.", go: onPublic },
+  ];
+
   return (
-    <main className="page">
-      <div className="card">
-        <TopLine />
-        {body}
-        <div className="footer muted small">
-          <span>Signed in as {handle}</span>
-          <button className="link" onClick={onLogout}>
-            Log out
+    <main className="x-screen">
+      <TopBar />
+      <div className="x-greet">
+        <p className="x-dim">Hi, @{handle}</p>
+        <h1 className="x-h">How do you want to talk?</h1>
+      </div>
+      <div className="x-cards">
+        {cards.map((c) => (
+          <button key={c.title} className="x-card" disabled={busy !== null} onClick={c.go}>
+            <span className="x-ico">{c.icon}</span>
+            <span className="x-card-b">
+              <strong>{c.title}</strong>
+              <span>{c.text}</span>
+            </span>
+            <Chevron className="x-chev" />
           </button>
-        </div>
+        ))}
+      </div>
+      {errorBox}
+      <p className="x-note">Nobody knows who you are unless you choose to show your username. Private chats aren&rsquo;t saved. Be kind; you can report anyone who isn&rsquo;t.</p>
+      <div className="x-foot">
+        <span>Signed in as @{handle}</span>
+        <button className="x-link" onClick={onLogout}>
+          Log out
+        </button>
       </div>
     </main>
   );
@@ -204,17 +198,20 @@ export function Home({ handle, gender, onStart, onPublic, onGenderSaved, onLogou
 export function Searching({ want, onCancel }: { want: Want | null; onCancel: () => void }) {
   const who = want === "girl" ? "a girl" : want === "boy" ? "a boy" : "someone";
   return (
-    <main className="page">
-      <div className="card" style={{ alignItems: "center", textAlign: "center" }}>
-        <div className="spinner" role="status" aria-label="Searching" />
-        <div className="stack" style={{ gap: 8 }}>
-          <h1>Looking for {who}…</h1>
-          <p className="muted">This can take a moment if not many people are online. Keep this page open.</p>
-        </div>
-        <button className="btn ghost" onClick={onCancel} style={{ minWidth: 140 }}>
-          Cancel
-        </button>
+    <main className="x-screen x-center">
+      <div className="x-radar" role="status" aria-label="Searching">
+        <i />
+        <i />
+        <i />
+        <Logo size={64} />
       </div>
+      <h1 className="x-h">Looking for {who}…</h1>
+      <p className="x-sub" style={{ maxWidth: "30ch" }}>
+        This can take a moment if not many people are online. Keep this page open.
+      </p>
+      <button className="x-btn ghost" onClick={onCancel}>
+        Cancel
+      </button>
     </main>
   );
 }
