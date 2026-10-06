@@ -13,13 +13,19 @@ const base = (size: number) => ({
   "aria-hidden": true,
 });
 
-/** The app mark: a rounded square with a rounded X. */
+/** The app logo (public/logo.png, a black mark on white) on a rounded white tile. The picture has a wide margin, so it is zoomed to fill the tile. */
 export function Logo({ size = 40 }: { size?: number }) {
   return (
     <span className="x-logo" style={{ width: size, height: size, borderRadius: size * 0.3 }} aria-hidden>
-      <svg width={size * 0.5} height={size * 0.5} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.6} strokeLinecap="round">
-        <path d="M5 5l14 14M19 5L5 19" />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.png"
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        style={{ position: "absolute", left: "50%", top: "50%", width: "130%", height: "130%", maxWidth: "none", transform: "translate(-50%, -50%)" }}
+      />
     </span>
   );
 }

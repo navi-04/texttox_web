@@ -117,9 +117,10 @@ p {
 /* ---------- logo + top bar ---------- */
 
 .x-logo {
-  display: inline-grid;
-  place-items: center;
+  position: relative;
+  display: inline-block;
   flex-shrink: 0;
+  overflow: hidden;
   background: var(--fg);
   color: var(--bg);
 }
@@ -1003,5 +1004,121 @@ p {
   .x-b,
   .x-dialog[open] {
     animation: none;
+  }
+}
+
+/* ---------- plain document pages (the privacy policy): a readable page, not the app frame ---------- */
+
+.x-doc {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(var(--safe-t) + 32px) calc(var(--safe-r) + 20px) calc(var(--safe-b) + 56px) calc(var(--safe-l) + 20px);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.x-doc h1 {
+  margin-bottom: 4px;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.x-doc h2 {
+  margin: 32px 0 8px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.x-doc p,
+.x-doc ul {
+  margin: 0 0 12px;
+}
+
+.x-doc ul {
+  padding-left: 22px;
+}
+
+.x-doc li {
+  margin-bottom: 6px;
+}
+
+.x-doc a {
+  color: var(--fg);
+  text-underline-offset: 3px;
+}
+
+.x-doc table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--s3);
+  border-radius: var(--r);
+  overflow: hidden;
+  font-size: 14.5px;
+}
+
+.x-doc th,
+.x-doc td {
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--s3);
+}
+
+.x-doc th {
+  background: var(--s1);
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.x-doc tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  /* a three-column table is unreadable on a phone: stack each row as a card */
+  .x-doc table,
+  .x-doc tbody,
+  .x-doc tr,
+  .x-doc td {
+    display: block;
+    width: 100%;
+  }
+
+  .x-doc thead {
+    display: none;
+  }
+
+  .x-doc tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--s3);
+  }
+
+  .x-doc tr:last-child {
+    border-bottom: 0;
+  }
+
+  .x-doc td {
+    padding: 4px 14px;
+    border: 0;
+  }
+
+  .x-doc td:first-child {
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  .x-doc td:nth-child(2),
+  .x-doc td:nth-child(3) {
+    color: var(--dim);
+  }
+
+  .x-doc td:nth-child(3)::before {
+    content: "Kept: ";
+    color: var(--fg);
+    font-weight: 600;
   }
 }
