@@ -394,6 +394,12 @@ export async function deletePublicMessage(id: number): Promise<void> {
  */
 export async function deleteUser(userId: number): Promise<void> {
   const email = await emailOf(userId);
+  await removeUser(userId, email);
+  await log("Deleted user", email);
+}
+
+/** The deletion itself, with no log entry. Also used when people delete their own account. */
+export async function removeUser(userId: number, email: string): Promise<void> {
   const mine = "SELECT id FROM chats WHERE user_a = ? OR user_b = ?";
   const db = await getDb();
   await db.batch(
@@ -407,12 +413,11 @@ export async function deleteUser(userId: number): Promise<void> {
       { sql: "DELETE FROM public_messages WHERE user_id = ?", args: [userId] },
       { sql: "DELETE FROM otps WHERE email = ?", args: [email] },
       {
-        sql: "DELETE FROM rate_limits WHERE key IN (?, ?, ?)",
-        args: [`otp:email:${email}`, `otp:cool:${email}`, `login:uid:${userId}`],
+        sql: "DELETE FROM rate_limits WHERE key IN (?, ?, ?, ?)",
+        args: [`otp:email:${email}`, `otp:cool:${email}`, `login:uid:${userId}`, `pub:send:${userId}`],
       },
       { sql: "DELETE FROM users WHERE id = ?", args: [userId] },
     ],
     "write",
   );
-  await log("Deleted user", email);
 }

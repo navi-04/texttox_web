@@ -14,6 +14,7 @@ import {
   BAD_LOGIN, getUserByToken, hashPassword, loginWithPassword, nameOf, parseEmail, parseUsername, requestCode, setGender, setPassword, verifyCode, verifyPassword,
   type Gender, type User,
 } from "../src/lib/auth";
+import { deleteOwnAccount } from "../src/lib/account";
 import { cancelSearch, joinQueue, leaveChat, reportChat, sendMessage, setAnonymous, tryMatch } from "../src/lib/chat";
 import { all, getDb, one, run } from "../src/lib/db";
 import { ApiError } from "../src/lib/errors";
@@ -1013,5 +1014,80 @@ describe("signing in as the admin from the ordinary form", () => {
     assert.equal(isAdminUsername("boss"), false, "admin is off, so it is just a username");
     delete process.env.ADMIN_USERNAME;
     delete process.env.ADMIN_PASSWORD;
+  });
+});
+
+describe("deleting your own account", () => {
+  const count = async (sql: string, args: (string | number)[] = []) => (await one<{ n: number }>(sql, args))!.n;
+  let n = 0;
+  const ip = () => `30.${(++n >> 8) & 255}.${n & 255}.1`;
+
+  it("needs the password and an explicit confirmation, and a wrong try deletes nothing", async () => {
+    const u = await signUp(null);
+    await rejects(deleteOwnAccount(u.username, PASSWORD, undefined, ip()), 400);
+    await rejects(deleteOwnAccount(u.username, PASSWORD, "yes", ip()), 400);
+    await rejects(deleteOwnAccount(u.username, "wrong password", "DELETE", ip()), 401);
+    await rejects(deleteOwnAccount("nobody_by_this_name", PASSWORD, "DELETE", ip()), 401);
+    await rejects(deleteOwnAccount(u.username, "", "DELETE", ip()), 400);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id = ?", [u.id]), 1);
+  });
+
+  it("removes the account and everything tied to it, by username or by email", async () => {
+    const a = await signUp("boy");
+    const b = await signUp("girl");
+    await joinQueue(a, "girl");
+    await joinQueue(b, "boy");
+    const chatId = (await fresh(a)).chat_id!;
+    await sendMessage(await fresh(a), "private hello");
+    await sendMessage(await fresh(b), "private reply");
+    const reportId = await reportChat(await fresh(b), "reported");
+    assert.ok(reportId);
+    await sendPublic(a, "my public message");
+    await sendPublic(b, "someone else's public message");
+    await run("INSERT INTO admin_log (at, action, detail) VALUES (?, 'Blocked user', ?), (?, 'Set gender', ?), (?, 'Blocked user', ?)", [
+      Date.now(), a.email, Date.now(), `${a.email}: boy`, Date.now(), b.email,
+    ]);
+
+    await deleteOwnAccount(a.email.toUpperCase(), PASSWORD, "DELETE", ip()); // by email, in capitals
+
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id = ?", [a.id]), 0);
+    for (const [table, col] of [["sessions", "user_id"], ["queue", "user_id"], ["public_messages", "user_id"]] as const) {
+      assert.equal(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`, [a.id]), 0, table);
+    }
+    assert.equal(await count("SELECT COUNT(*) AS n FROM chats WHERE id = ?", [chatId]), 0, "their chat");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?", [chatId]), 0, "its messages");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM reports WHERE id = ?", [reportId!]), 0, "reports about them");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM admin_log WHERE detail LIKE ?", [`%${a.email}%`]), 0, "their email in the admin log");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM admin_log WHERE detail = ?", [b.email]), 1, "other people's log lines stay");
+
+    // the other person is simply back at the home screen, and their own things are untouched
+    const bAfter = await fresh(b);
+    assert.equal(bAfter.chat_id, null);
+    assert.equal((await pollState(bAfter, null, null, 0)).status, "idle");
+    const room = (await pollPublic(bAfter, 0)).messages.map((m) => m.text);
+    assert.ok(room.includes("someone else's public message"), "other people's public messages stay");
+    assert.ok(!room.includes("my public message"), "theirs is gone");
+
+    // the same username can't sign in any more, and can be used again for a brand new account
+    await rejects(loginWithPassword(a.username!, PASSWORD, ip()), 401);
+    const again = await createAccount(a.email, ip(), PASSWORD, a.username!);
+    assert.ok((await getUserByToken(again))!.id !== a.id);
+
+    // by username too
+    await deleteOwnAccount(b.username, PASSWORD, "DELETE", ip());
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id = ?", [b.id]), 0);
+  });
+
+  it("is not a way around a block, and shares the sign-in guess limit", async () => {
+    const blocked = await signUp(null);
+    await setBlocked(blocked.id, true);
+    await rejects(deleteOwnAccount(blocked.username, PASSWORD, "DELETE", ip()), 403);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id = ?", [blocked.id]), 1);
+
+    const u = await signUp(null);
+    for (let i = 0; i < 10; i++) await rejects(deleteOwnAccount(u.username, `guess ${i}`, "DELETE", ip()), 401);
+    await rejects(deleteOwnAccount(u.username, PASSWORD, "DELETE", ip()), 429); // even the right password waits
+    await rejects(loginWithPassword(u.username!, PASSWORD, ip()), 429); // the same counter as signing in
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id = ?", [u.id]), 1);
   });
 });

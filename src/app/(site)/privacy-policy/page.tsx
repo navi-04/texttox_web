@@ -129,9 +129,10 @@ export default function PrivacyPolicy() {
 
       <h2>Deleting your data</h2>
       <p>
-        You can ask us to delete your account at any time. Email <a href={`mailto:${contact}`}>{contact}</a> from the address you signed up with, and we will delete
-        your account and everything tied to it: your email, username, password hash, sessions, chats, public room messages and reports about you or by you. We aim
-        to do this within 30 days. Chats and public messages are already deleted automatically as described above.
+        You can delete your account yourself at any time, instantly, at <a href="/delete-account">texttox.fewinfos.com/delete-account</a>. Enter your username (or
+        email) and password and everything tied to your account is permanently deleted: your email, username, password hash, sessions, chats, public room messages
+        and reports about you or by you. If you can&rsquo;t sign in, email <a href={`mailto:${contact}`}>{contact}</a> from the address you signed up with and we will
+        delete it for you, normally within 30 days. Chats and public messages are also deleted automatically as described above.
       </p>
 
       <h2>Security</h2>

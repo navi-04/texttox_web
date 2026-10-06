@@ -143,6 +143,15 @@ export const BAD_LOGIN = "Wrong username, email or password.";
 
 /** `rawId` is a username or an email address. */
 export async function loginWithPassword(rawId: unknown, rawPassword: unknown, ip: string): Promise<{ token: string }> {
+  const { id } = await verifyCredentials(rawId, rawPassword, ip);
+  return { token: await createSession(id) };
+}
+
+/**
+ * Checks a username-or-email and password, with the sign-in guess limits, and returns who it is.
+ * Used for signing in and for deleting your own account, so both are equally hard to guess into.
+ */
+export async function verifyCredentials(rawId: unknown, rawPassword: unknown, ip: string): Promise<{ id: number }> {
   const id = typeof rawId === "string" ? rawId.trim().toLowerCase().slice(0, 254) : "";
   if (!id || typeof rawPassword !== "string" || !rawPassword) throw new ApiError(400, "Enter your username or email, and your password.");
 
@@ -169,7 +178,7 @@ export async function loginWithPassword(rawId: unknown, rawPassword: unknown, ip
   // Same answer (and about the same time) whether the account is unknown, has no password yet, or the password is wrong.
   if (!user || !user.password_hash || !matches) throw new ApiError(401, BAD_LOGIN);
   if (user.banned) throw new ApiError(403, "This account has been blocked.");
-  return { token: await createSession(user.id) };
+  return { id: user.id };
 }
 
 /* ---------------------------------------------- create account / reset password */

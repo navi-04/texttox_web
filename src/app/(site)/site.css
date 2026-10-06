@@ -1122,3 +1122,56 @@ p {
     font-weight: 600;
   }
 }
+
+/* a tick box with its sentence, used on the delete-account page */
+.x-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.x-check input {
+  flex-shrink: 0;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  background: var(--s1);
+  border: 1.5px solid var(--dim2);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.x-check input:checked {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+.x-check input:checked::after {
+  content: "";
+  width: 6px;
+  height: 11px;
+  margin-bottom: 2px;
+  border: solid var(--bg);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+
+.x-doc .x-form {
+  margin: 20px 0 8px;
+  padding: 20px;
+  background: var(--s1);
+  border: 1px solid var(--s3);
+  border-radius: var(--r-lg);
+}
+
+.x-doc ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
