@@ -1,12 +1,13 @@
 # Text to X: what you need to do
 
-Text to X is an anonymous chat site with three ways to chat:
+Text to X is an anonymous chat site with four ways to chat:
 
 - **Specific chat**: choose to talk to a boy or a girl. One-to-one and private (two-sided matching, as before).
 - **Random chat**: get paired with anyone else who picked random. No boy/girl filter, and no gender needed.
+- **Truth or Dare**: get paired with a stranger who also picked it and play a turn-based game inside a private, anonymous chat. No gender needed.
 - **Public room**: one anonymous group chat. Every message disappears automatically (12, 24, 36 or 48 hours, your choice in the admin panel; 48 to start).
 
-Anyone with any email address can create an account. The code, the tests (63 backend tests), a production build and a real HTTP walk-through (sign-up, sign-in by username and by email, admin sign-in, random chat, public room) all work on a laptop. What is left are the things only you can do: your accounts, secrets and the deploy.
+Anyone with any email address can create an account. The code, the tests (91 backend tests), a production build and a real HTTP walk-through (sign-up, sign-in by username and by email, admin sign-in, random chat, Truth or Dare, public room) all work on a laptop. What is left are the things only you can do: your accounts, secrets and the deploy.
 
 ---
 
@@ -76,8 +77,9 @@ SMTP_FROM="Text to X <the-sender-you-verified@example.com>"
 Use two devices, or a normal and a private window.
 
 - [ ] **Create account** with any email (try a non-college one): a code arrives, you enter it, **choose a username and a password**, and you're in.
-- [ ] The home screen shows **Specific chat / Random chat / Public room**.
+- [ ] The home screen shows **Specific chat / Random chat / Truth or Dare / Public room**.
 - [ ] **Random chat** on two accounts: both land in the same chat within seconds, with no boy/girl question.
+- [ ] **Truth or Dare** on two accounts: both land in a chat headed "Truth or Dare". One has "Your turn. Truth or dare?"; after they pick, the other gets **Draw one / Write my own** while the first just sees "…is picking one for you"; the card appears on both sides, **Done** is greyed out until the player sends an answer in the chat, and then it passes the turn.
 - [ ] **Specific chat**: the first time, it asks "Boy or Girl". One person picks "A girl" and the other "A boy" (matching their genders) and they connect.
 - [ ] **Public room** on two accounts: messages appear on both sides within a couple of seconds, with no names anywhere.
 - [ ] Log out, then sign in with the **username** and password; again with the **email** and password. No email is sent either time.
@@ -96,8 +98,9 @@ Use two devices, or a normal and a private window.
 - **The admin signs in with the same form** by typing the admin username. A wrong admin password shows the same "Wrong username, email or password" as everyone else, so nobody can tell which name is the admin's. (Admin limit: 8 tries per 15 minutes per address.)
 - **What others can see:** only a **username**, and only if you turn anonymity off in a chat. Your email is never shown to other users. In a report, the admin sees both people's usernames and emails.
 - **Nobody can find out who has an account.** "Create account" for an email that already has a password, and "Forgot password?" for an email with no account, look exactly like a normal request but send **no email**.
-- **Matching:** *Specific chat* is two-sided by gender (boy→girl pairs with girl→boy; boy→boy with another boy→boy). *Random chat* pairs only with other random searchers. The two never mix. The longest-waiting person goes first, and two people who just talked aren't re-paired for 10 minutes. One person = one chat at a time.
-- **Gender** is asked only the first time someone picks Specific chat, and can't be changed (you can clear or set it in the admin Users page). Random chat and the public room never ask.
+- **Matching:** *Specific chat* is two-sided by gender (boy→girl pairs with girl→boy; boy→boy with another boy→boy). *Random chat* pairs only with other random searchers, and *Truth or Dare* only with other Truth or Dare searchers. The three never mix. The longest-waiting person goes first, and two people who just talked aren't re-paired for 10 minutes. One person = one chat at a time.
+- **Gender** is asked only the first time someone picks Specific chat, and can't be changed (you can clear or set it in the admin Users page). Random chat, Truth or Dare and the public room never ask.
+- **Truth or Dare:** an ordinary private chat plus a turn-based game, so anonymity, Report, Leave and the 24 h cleanup all work as in any private chat. One of the two goes first (random), then turns alternate. The player picks **Truth** or **Dare**; the other person (the asker) then **draws one** from a built-in bank of about 120 truths and 120 dares, or **writes their own** (5 to 200 characters). The player has no say in it and just waits (the server refuses a draw or a typed prompt from the player). The player answers by typing in the chat; **Done** stays locked until they have sent a message after the card appeared (the server checks this too), then it passes the turn. Or they tap **Skip**, which needs no answer (two skips per person for bank prompts; skipping a prompt the partner typed is always free). Everything in the bank is clean, text-only and never asks for personal details; edit it in `src/lib/tod-prompts.ts` (the tests check each entry). **Typed prompts are screened** for links, email addresses, phone numbers, @handles, social-media and contact requests, and a short list of unsuitable words. That is a first filter only (a word list can't know every language or spelling), so the real safety net is the free skip, the Report button, and that every prompt is saved in the chat, so a report shows you each prompt and whether it came from the bank or was typed by a person.
 - **Public room:** one shared room. Everyone sees the newest 100 messages that have not expired yet when they walk in, and new ones arrive within about 2 seconds. Messages up to 500 characters, 12 per minute per person. **Replies:** like a WhatsApp group, people swipe a message right on a phone (or press the arrow beside it on a desktop) to reply; the reply shows the quoted text, labelled only "You" or "Anonymous", and tapping the quote jumps to the original. If the original is deleted or expires, the reply stays and the quote says "This message was deleted". Others see only the text and the time. **The database stores who posted each message** so you can moderate; only the admin page shows it. Messages vanish from view after the lifetime you choose in the admin panel's **Public room** tab (12, 24, 36 or 48 hours; it starts at 48), and the stored rows are deleted by the periodic cleanup. Shortening it deletes the messages that are now too old straight away, and they can't come back if you lengthen it again.
 - **Private chats are not saved:** messages are deleted when both people have left; an untouched unreported chat is deleted after 24 hours. Reported chats are kept until you dismiss or delete them.
 - **Old accounts (made before this change):** they have no username yet, so they sign in with their **email**, and show to partners as the start of their email address. When they use **Forgot password?** they are not asked for a username, so they keep that. Tell me if you want a "choose a username" prompt for them.
@@ -139,7 +142,7 @@ The buttons do what they say; **Delete user** needs you to type `DELETE`, remove
 | "Something went wrong" everywhere | Vercel → project → **Logs** shows the real error. |
 | Log says `SERVER_ERROR … 404` / `… 401` / "placeholder value" | `TURSO_DATABASE_URL` wrong / `TURSO_AUTH_TOKEN` wrong or expired / `.env` still has the placeholder. |
 | Messages take 1–2+ seconds | The Vercel function region is far from the Turso database (section 4, step 3). |
-| Stuck on "Looking for…" | Nobody online matches yet. *Specific*: a boy choosing "A girl" needs a girl choosing "A boy". *Random*: needs one other person who also chose Random. |
+| Stuck on "Looking for…" | Nobody online matches yet. *Specific*: a boy choosing "A girl" needs a girl choosing "A boy". *Random*: needs one other person who also chose Random. *Truth or Dare*: needs one other person who also chose Truth or Dare, and with few people online that can take a while. |
 | `texttox.fewinfos.com` doesn't load | The CNAME isn't in place yet, or Vercel's Domains page still shows it as invalid. Re-check the record it asks for. |
 
 ## Commands

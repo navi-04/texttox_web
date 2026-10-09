@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import type { Gender, User } from "./auth";
-import { all, getDb, one, run } from "./db";
+import { all, batch, getDb, one, run } from "./db";
 import { ApiError } from "./errors";
 
 export const MAX_MESSAGE_LENGTH = 1000;
@@ -10,8 +10,11 @@ const ONLINE_MS = 20_000;
 /** Don't pair two people again right after they have just talked. */
 const NO_REMATCH_MS = 10 * 60 * 1000;
 
-/** "any" = non-specific chat: paired with anyone else who also chose "any", whatever either person's gender. */
-export type Want = Gender | "any";
+/**
+ * "any" = non-specific chat: paired with anyone else who also chose "any", whatever either person's gender.
+ * "tod" = Truth or Dare: paired with anyone else who also chose "tod". Each of these is its own lane, so they never mix.
+ */
+export type Want = Gender | "any" | "tod";
 
 interface QueueRow {
   user_id: number;
@@ -30,14 +33,22 @@ export interface ChatRow {
   version: number;
   reported: number;
   updated_at: number;
+  mode: "chat" | "tod";
+  turn_user: number | null;
+  phase: "choose" | "ask" | "answer" | null;
+  pick: "truth" | "dare" | null;
+  custom: number;
+  skips_a: number;
+  skips_b: number;
 }
 
 /* ------------------------------------------------------------------ queue */
 
 export async function joinQueue(user: User, want: unknown): Promise<void> {
-  if (want !== "boy" && want !== "girl" && want !== "any") throw new ApiError(400, "Choose who you want to chat with.");
+  if (want !== "boy" && want !== "girl" && want !== "any" && want !== "tod") throw new ApiError(400, "Choose who you want to chat with.");
+  const specific = want === "boy" || want === "girl";
   // Only the specific chat is two-sided by gender, so only it needs to know who you are.
-  if (want !== "any" && !user.gender) throw new ApiError(400, "Choose boy or girl for yourself first.");
+  if (specific && !user.gender) throw new ApiError(400, "Choose boy or girl for yourself first.");
 
   // `user` was loaded at the start of the request - look at the chat again.
   const current = await one<{ chat_id: string | null; status: string | null }>(
@@ -55,7 +66,7 @@ export async function joinQueue(user: User, want: unknown): Promise<void> {
      ON CONFLICT (user_id) DO UPDATE SET
        joined_at = CASE WHEN queue.want = excluded.want THEN queue.joined_at ELSE excluded.joined_at END,
        want = excluded.want, gender = excluded.gender, last_seen = excluded.last_seen`,
-    [user.id, want === "any" ? "any" : user.gender, want, now, now],
+    [user.id, specific ? user.gender : want, want, now, now],
   );
   await tryMatch(user.id);
 }
@@ -89,10 +100,12 @@ export async function tryMatch(userId: number): Promise<boolean> {
            AND ((c.user_a = ? AND c.user_b = q.user_id) OR (c.user_a = q.user_id AND c.user_b = ?))
        )
      ORDER BY q.joined_at LIMIT 1`,
-    // A non-specific searcher is stored as ("any", "any"), so the same two-sided test pairs "any" with "any" only.
+    // A non-specific searcher is stored as ("any", "any") and a Truth or Dare one as ("tod", "tod"), so the same two-sided
+    // test pairs each of them only with its own kind.
     [me.want, me.gender, userId, now - ONLINE_MS, now - NO_REMATCH_MS, userId, userId],
   );
   if (!other) return false;
+  const tod = me.want === "tod";
 
   // Both people may be trying to match at this very moment. One batch is one atomic write, and every
   // statement after the first only acts if the chat row was created - which requires that both people
@@ -101,22 +114,21 @@ export async function tryMatch(userId: number): Promise<boolean> {
   const ids = [userId, other.user_id];
   const made = "EXISTS (SELECT 1 FROM chats WHERE id = ?)";
   try {
-    const db = await getDb();
-    const [created] = await db.batch(
+    const [created] = await batch(
       [
         {
-          sql: `INSERT INTO chats (id, user_a, user_b, created_at, updated_at)
-                SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM queue WHERE user_id IN (?, ?)) = 2`,
-          args: [chatId, ...ids, now, now, ...ids],
+          // A Truth or Dare chat also starts its game: one of the two, chosen at random, goes first.
+          sql: `INSERT INTO chats (id, user_a, user_b, created_at, updated_at, mode, turn_user, phase)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM queue WHERE user_id IN (?, ?)) = 2`,
+          args: [chatId, ...ids, now, now, tod ? "tod" : "chat", tod ? ids[randomInt(2)] : null, tod ? "choose" : null, ...ids],
         },
         { sql: `UPDATE users SET chat_id = ?, last_seen = ? WHERE id IN (?, ?) AND ${made}`, args: [chatId, now, ...ids, chatId] },
         { sql: `DELETE FROM queue WHERE user_id IN (?, ?) AND ${made}`, args: [...ids, chatId] },
         {
-          sql: `INSERT INTO messages (chat_id, sender_id, kind, body, created_at) SELECT ?, NULL, 'connected', '', ? WHERE ${made}`,
-          args: [chatId, now, chatId],
+          sql: `INSERT INTO messages (chat_id, sender_id, kind, body, created_at) SELECT ?, NULL, ?, '', ? WHERE ${made}`,
+          args: [chatId, tod ? "tod_start" : "connected", now, chatId],
         },
       ],
-      "write",
     );
     return created.rowsAffected === 1;
   } catch (e) {
@@ -131,7 +143,8 @@ export async function tryMatch(userId: number): Promise<boolean> {
 export async function getChat(userId: number, chatId: string | null): Promise<ChatRow | undefined> {
   if (!chatId) return undefined;
   return one<ChatRow>(
-    `SELECT id, user_a, user_b, a_open, b_open, status, ended_by, version, reported, updated_at
+    `SELECT id, user_a, user_b, a_open, b_open, status, ended_by, version, reported, updated_at,
+            mode, turn_user, phase, pick, custom, skips_a, skips_b
      FROM chats WHERE id = ? AND (user_a = ? OR user_b = ?)`,
     [chatId, userId, userId],
   );

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 // Read at request time so the contact address comes from the environment, not from the code.
 export const dynamic = "force-dynamic";
 
-const UPDATED = "6 October 2026";
+const UPDATED = "9 October 2026";
 
 export default function PrivacyPolicy() {
   const contact = process.env.CONTACT_EMAIL?.trim() || reportRecipient();
@@ -28,7 +28,7 @@ export default function PrivacyPolicy() {
       <h2>The short version</h2>
       <ul>
         <li>Your chats are anonymous. Other people never see your email, only a username, and only if you choose to show it.</li>
-        <li>Private chat messages are deleted as soon as both people have left the chat, and in any case after 24 hours.</li>
+        <li>Private chat messages (including Truth or Dare games) are deleted as soon as both people have left the chat, and in any case after 24 hours.</li>
         <li>Public room messages disappear automatically, after 12 to 48 hours at most (the time is set by the site admin).</li>
         <li>We have no advertising, no analytics and no tracking. We do not sell or share your data.</li>
         <li>You can have your account and everything tied to it deleted at any time (see &ldquo;Deleting your data&rdquo;).</li>
@@ -75,8 +75,8 @@ export default function PrivacyPolicy() {
             <td>10 minutes, then deleted.</td>
           </tr>
           <tr>
-            <td>Private chat messages (specific and random chat)</td>
-            <td>To deliver the conversation.</td>
+            <td>Private chat messages (specific chat, random chat and Truth or Dare)</td>
+            <td>To deliver the conversation. In Truth or Dare this includes the truths and dares shown in the game, and any you type for the other person.</td>
             <td>Deleted when both people have left, and after 24 hours of inactivity at the latest. The exception is a chat that was reported (below).</td>
           </tr>
           <tr>

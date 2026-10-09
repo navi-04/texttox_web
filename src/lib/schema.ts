@@ -54,12 +54,22 @@ export const SCHEMA: string[] = [
     reported    INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL,
-    ended_at    INTEGER
+    ended_at    INTEGER,
+    -- Truth or Dare (see game.ts). mode 'chat' is an ordinary chat and leaves the rest unused.
+    mode        TEXT    NOT NULL DEFAULT 'chat',    -- chat | tod
+    turn_user   INTEGER,                            -- whose turn it is
+    phase       TEXT,                               -- choose | ask | answer
+    pick        TEXT,                               -- truth | dare, while a prompt is being asked or answered
+    custom      INTEGER NOT NULL DEFAULT 0,         -- 1 = the current prompt was typed by the partner, not drawn from the bank
+    skips_a     INTEGER NOT NULL DEFAULT 0,
+    skips_b     INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chats_a ON chats (user_a, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_chats_b ON chats (user_b, created_at)`,
 
   // kind: msg | connected | anon_on | anon_off | ended   (sender_id says who it is about)
+  //       tod_start | tod_pick | tod_truth | tod_dare | tod_done | tod_skip   (Truth or Dare; for tod_truth / tod_dare
+  //       the body is the prompt and sender_id is NULL for a bank prompt, or the partner who typed it)
   `CREATE TABLE IF NOT EXISTS messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     TEXT    NOT NULL,

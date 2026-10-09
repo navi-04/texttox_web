@@ -1,4 +1,4 @@
-import type { Client, InValue } from "@libsql/client";
+import type { Client, InStatement, InValue, ResultSet } from "@libsql/client";
 import { SCHEMA } from "./schema";
 
 const g = globalThis as unknown as { __db?: Promise<Client> };
@@ -19,14 +19,17 @@ async function open(): Promise<Client> {
   return createClient({ url: url.replace(/^libsql:/, "https:"), authToken });
 }
 
-/** SQLite has no "ADD COLUMN IF NOT EXISTS", so look first. */
-async function ensureColumn(client: Client, table: string, column: string, ddl: string) {
+/** SQLite has no "ADD COLUMN IF NOT EXISTS", so look first. One look per table, not per column: every cold start runs this. */
+async function ensureColumns(client: Client, table: string, columns: Record<string, string>) {
   const info = await client.execute(`PRAGMA table_info(${table})`);
-  if (info.rows.some((r) => r.name === column)) return;
-  try {
-    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
-  } catch (e) {
-    if (!/duplicate column/i.test(String(e))) throw e; // another server instance just added it
+  const have = new Set(info.rows.map((r) => String(r.name)));
+  for (const [column, ddl] of Object.entries(columns)) {
+    if (have.has(column)) continue;
+    try {
+      await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e))) throw e; // another server instance just added it
+    }
   }
 }
 
@@ -34,11 +37,19 @@ async function ensureColumn(client: Client, table: string, column: string, ddl: 
 export async function migrate(client: Client): Promise<void> {
   await client.batch(SCHEMA, "write");
   // Added after the first release: databases created back then lack it.
-  await ensureColumn(client, "reports", "status", "TEXT NOT NULL DEFAULT 'open'");
-  await ensureColumn(client, "users", "password_hash", "TEXT");
-  await ensureColumn(client, "otps", "verified", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(client, "users", "username", "TEXT");
-  await ensureColumn(client, "public_messages", "reply_to", "INTEGER");
+  await ensureColumns(client, "reports", { status: "TEXT NOT NULL DEFAULT 'open'" });
+  await ensureColumns(client, "otps", { verified: "INTEGER NOT NULL DEFAULT 0" });
+  await ensureColumns(client, "users", { password_hash: "TEXT", username: "TEXT" });
+  await ensureColumns(client, "public_messages", { reply_to: "INTEGER" });
+  await ensureColumns(client, "chats", {
+    mode: "TEXT NOT NULL DEFAULT 'chat'",
+    turn_user: "INTEGER",
+    phase: "TEXT",
+    pick: "TEXT",
+    custom: "INTEGER NOT NULL DEFAULT 0",
+    skips_a: "INTEGER NOT NULL DEFAULT 0",
+    skips_b: "INTEGER NOT NULL DEFAULT 0",
+  });
   // After the column exists. Several NULLs are fine in a unique index, so old accounts without a username don't clash.
   await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)");
 }
@@ -86,6 +97,11 @@ export async function all<T = Row>(sql: string, args: InValue[] = []): Promise<T
 
 export async function one<T = Row>(sql: string, args: InValue[] = []): Promise<T | undefined> {
   return (await all<T>(sql, args))[0];
+}
+
+/** Several writes as one atomic transaction (a failed one changes nothing, so retrying after a repair is safe). */
+export async function batch(statements: InStatement[]): Promise<ResultSet[]> {
+  return withRepair((db) => db.batch(statements, "write"));
 }
 
 /** Runs a write and returns how many rows it changed. */

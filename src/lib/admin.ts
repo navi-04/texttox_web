@@ -206,18 +206,25 @@ export async function reportDetail(id: number): Promise<ReportDetail> {
     await all<Raw>("SELECT id, sender_id, kind, body, created_at FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 500", [report.chatId])
   ).reverse();
 
-  const events: Record<string, (who: string) => string> = {
+  const events: Record<string, (who: string, body: string) => string> = {
     connected: () => "Chat started",
     anon_off: (who) => `${who} turned anonymity off`,
     anon_on: (who) => `${who} turned anonymity back on`,
     ended: (who) => `${who} left the chat`,
+    tod_start: () => "Truth or Dare chat started",
+    tod_pick: (who, body) => `${who} chose ${body === "dare" ? "dare" : "truth"}`,
+    tod_done: (who) => `${who} finished their turn`,
+    tod_skip: (who) => `${who} skipped`,
+    // A prompt card: the text is shown, and who typed it (nobody, if it came from the bank).
+    tod_truth: (who, body) => `Truth ${who === "Someone" ? "from the bank" : `typed by ${who}`}: ${body}`,
+    tod_dare: (who, body) => `Dare ${who === "Someone" ? "from the bank" : `typed by ${who}`}: ${body}`,
   };
   const timeline = messages.map((m): TimelineItem => {
     const who = m.sender_id === report.reporter.id ? "reporter" : m.sender_id === report.reported.id ? "reported" : "system";
     const name = who === "reporter" ? "Reporter" : who === "reported" ? "Reported" : "Someone";
     return m.kind === "msg"
       ? { id: Number(m.id), who, kind: "msg", text: String(m.body), at: Number(m.created_at) }
-      : { id: Number(m.id), who, kind: "info", text: events[String(m.kind)]?.(name) ?? String(m.kind), at: Number(m.created_at) };
+      : { id: Number(m.id), who, kind: "info", text: events[String(m.kind)]?.(name, String(m.body)) ?? String(m.kind), at: Number(m.created_at) };
   });
 
   return {

@@ -67,6 +67,13 @@ export const Shuffle = ({ size = 24 }: P) => (
   </svg>
 );
 
+export const Dice = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <rect x="4" y="4" width="16" height="16" rx="5" />
+    <path d="M9 9h.01M15 9h.01M12 12h.01M9 15h.01M15 15h.01" strokeWidth={3} />
+  </svg>
+);
+
 export const Group = ({ size = 24 }: P) => (
   <svg {...base(size)}>
     <circle cx="9" cy="8" r="3.2" />

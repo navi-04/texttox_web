@@ -911,6 +911,333 @@ describe("non-specific (random) chat", () => {
   });
 });
 
+import { drawPrompt, finishTurn, MAX_SKIPS, pickKind, screenPrompt, skipTurn, writePrompt, type Kind } from "../src/lib/game";
+import { DARES, TRUTHS } from "../src/lib/tod-prompts";
+
+describe("truth or dare", () => {
+  const game = async (u: User) => (await pollState(await fresh(u), null, null, 0)).chat!.game!;
+  const view = async (u: User) => (await pollState(await fresh(u), null, null, 0)).chat!;
+  const cards = async (chatId: string) => all<{ body: string; sender_id: number | null }>("SELECT body, sender_id FROM messages WHERE chat_id = ? AND kind IN ('tod_truth', 'tod_dare') ORDER BY id", [chatId]);
+
+  /** Two strangers matched for a game. `player` is whoever the game gave the first turn to. */
+  async function play(): Promise<{ player: User; asker: User; chatId: string }> {
+    const a = await signUp(null); // no gender needed
+    const b = await signUp(null);
+    await joinQueue(a, "tod");
+    await joinQueue(b, "tod");
+    const [fa, fb] = [await fresh(a), await fresh(b)];
+    assert.ok(fa.chat_id && fa.chat_id === fb.chat_id);
+    const turn = (await one<{ turn_user: number }>("SELECT turn_user FROM chats WHERE id = ?", [fa.chat_id]))!.turn_user;
+    return turn === fa.id ? { player: fa, asker: fb, chatId: fa.chat_id! } : { player: fb, asker: fa, chatId: fa.chat_id! };
+  }
+  /** One whole turn. Afterwards the two swap roles. Finishing needs an answer in the chat; skipping doesn't. */
+  async function turn(player: User, asker: User, kind: Kind, how: "draw" | "write", end: "done" | "skip") {
+    await pickKind(player, kind);
+    if (how === "draw") await drawPrompt(asker);
+    else await writePrompt(asker, "Tell us the funniest thing that happened to you this week");
+    if (end === "done") {
+      await sendMessage(player, "here is my answer");
+      await finishTurn(player);
+    } else await skipTurn(player);
+  }
+
+  it("pairs only with other Truth or Dare players, needs no gender, and starts a game", async () => {
+    const a = await signUp(null);
+    const b = await signUp(null);
+    const random = await signUp(null);
+    const specific = await signUp("boy");
+    await joinQueue(a, "tod");
+    assert.equal((await pollState(a, null, null, 0)).want, "tod");
+    await joinQueue(random, "any");
+    await joinQueue(specific, "girl");
+    for (const u of [a, random, specific]) assert.equal((await fresh(u)).chat_id, null, "different kinds of search never mix");
+
+    await joinQueue(b, "tod");
+    const [fa, fb] = [await fresh(a), await fresh(b)];
+    assert.ok(fa.chat_id);
+    assert.equal(fa.chat_id, fb.chat_id);
+    assert.equal((await fresh(random)).chat_id, null);
+    assert.equal((await fresh(specific)).chat_id, null);
+    await cancelSearch(random.id);
+    await cancelSearch(specific.id);
+
+    const chat = (await one<{ mode: string; turn_user: number; phase: string; pick: string | null }>("SELECT mode, turn_user, phase, pick FROM chats WHERE id = ?", [fa.chat_id]))!;
+    assert.equal(chat.mode, "tod");
+    assert.equal(chat.phase, "choose");
+    assert.equal(chat.pick, null);
+    assert.ok([fa.id, fb.id].includes(chat.turn_user), "one of the two goes first");
+    const first = (await all<{ kind: string }>("SELECT kind FROM messages WHERE chat_id = ? ORDER BY id", [fa.chat_id]))[0];
+    assert.equal(first.kind, "tod_start");
+
+    const [ga, gb] = [await game(a), await game(b)];
+    assert.equal(ga.phase, "choose");
+    assert.notEqual(ga.myTurn, gb.myTurn, "exactly one of them has the turn");
+    assert.equal(ga.skipsLeft, MAX_SKIPS);
+  });
+
+  it("an ordinary chat has no game, and the game moves are refused there", async () => {
+    const [a] = await pair();
+    assert.equal((await view(a)).game, null);
+    await rejects(pickKind(a, "truth"), 409);
+    await rejects(drawPrompt(a), 409);
+    await rejects(finishTurn(a), 409);
+  });
+
+  it("the player picks, the asker draws, and the card names the right kind and the right person", async () => {
+    const { player, asker, chatId } = await play();
+    await rejects(pickKind(asker, "truth"), 409); // not their turn
+    await rejects(pickKind(player, "maybe"), 400);
+    await rejects(drawPrompt(asker), 409); // nothing has been picked yet
+    await rejects(finishTurn(player), 409);
+
+    await pickKind(player, "dare");
+    await rejects(pickKind(player, "truth"), 409); // can't pick twice
+    assert.deepEqual(await game(player), { phase: "ask", pick: "dare", myTurn: true, custom: false, skipsLeft: MAX_SKIPS, answered: false });
+    assert.equal((await game(asker)).myTurn, false);
+
+    await drawPrompt(asker);
+    await rejects(drawPrompt(asker), 409); // already drawn
+    const [vp, va] = [await view(player), await view(asker)];
+    const cardOf = (v: typeof vp) => v.messages.find((m) => m.kind === "card")!;
+    assert.ok(DARES.includes(cardOf(vp).text), "a dare comes from the dare bank");
+    assert.deepEqual(cardOf(vp).card, { type: "dare", forMe: true, byAsker: false });
+    assert.deepEqual(cardOf(va).card, { type: "dare", forMe: false, byAsker: false });
+    assert.equal(vp.game!.phase, "answer");
+    assert.equal((await cards(chatId))[0].sender_id, null, "a prompt from the bank has no author");
+    // the line announcing the pick reads from each side
+    assert.ok(vp.messages.some((m) => m.kind === "info" && m.text === "You chose dare."));
+    assert.ok(va.messages.some((m) => m.kind === "info" && m.text === "Your partner chose dare."));
+  });
+
+  it("the player can't pick their own prompt: only the partner draws or writes it", async () => {
+    const { player, asker, chatId } = await play();
+    await pickKind(player, "truth");
+    await rejects(drawPrompt(player), 409);
+    await rejects(writePrompt(player, "What is your favourite colour in the world?"), 409);
+    assert.equal((await cards(chatId)).length, 0, "the refused tries changed nothing");
+    assert.equal((await game(player)).phase, "ask");
+    await drawPrompt(asker);
+    const c = (await view(player)).messages.find((m) => m.kind === "card")!;
+    assert.ok(TRUTHS.includes(c.text));
+  });
+
+  it("two draws at once make exactly one card", async () => {
+    const { player, asker, chatId } = await play();
+    await pickKind(player, "truth");
+    const results = await Promise.allSettled([drawPrompt(asker), drawPrompt(asker)]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    assert.ok(lost.reason instanceof ApiError && lost.reason.status === 409);
+    assert.equal((await cards(chatId)).length, 1);
+  });
+
+  it("lets only the asker type a prompt, screens it, and shows it as typed by the partner", async () => {
+    const { player, asker, chatId } = await play();
+    await pickKind(player, "truth");
+    await rejects(writePrompt(player, "What is your favourite colour in the world?"), 409); // the player can't write their own
+
+    for (const bad of [
+      "hi",
+      "x".repeat(201),
+      "write to me at a@b.com please",
+      "go to https://example.com/x",
+      "look at www.example.org",
+      "call 98765 43210 now",
+      "add me on insta",
+      "what is your whats app",
+      "tell me your real name",
+      "send a nude",
+      "who wants to k1ss",
+    ]) {
+      await rejects(writePrompt(asker, bad), 400);
+    }
+    assert.equal((await cards(chatId)).length, 0, "nothing rejected got into the chat");
+    assert.equal((await game(asker)).phase, "ask");
+
+    await writePrompt(asker, "  What is the silliest   thing you ever bought? ");
+    await rejects(writePrompt(asker, "A second one"), 409);
+    const [vp, va] = [await view(player), await view(asker)];
+    const cp = vp.messages.find((m) => m.kind === "card")!;
+    assert.equal(cp.text, "What is the silliest thing you ever bought?", "spaces are tidied");
+    assert.deepEqual(cp.card, { type: "truth", forMe: true, byAsker: true });
+    assert.deepEqual(va.messages.find((m) => m.kind === "card")!.card, { type: "truth", forMe: false, byAsker: true });
+    assert.equal(vp.game!.custom, true);
+    assert.equal((await cards(chatId))[0].sender_id, asker.id, "the author is kept server-side, for a report");
+    for (const [v, other] of [[vp, asker], [va, player]] as const) {
+      const json = JSON.stringify(v);
+      assert.ok(!json.includes(other.email) && !json.includes(other.username!), "partner identity leaked");
+    }
+  });
+
+  it("Done stays locked until the player has sent an answer in the chat after the card appeared", async () => {
+    const { player, asker } = await play();
+    await sendMessage(player, "chatting before the game starts doesn't count");
+    await pickKind(player, "truth");
+    await sendMessage(player, "nor does this, there is no card yet");
+    await drawPrompt(asker);
+    assert.equal((await game(player)).answered, false);
+    assert.equal((await game(asker)).answered, false);
+    await rejects(finishTurn(player), 409);
+    assert.equal((await game(player)).phase, "answer", "a refused Done changes nothing");
+
+    await sendMessage(asker, "the other person talking doesn't count either");
+    assert.equal((await game(player)).answered, false);
+    await rejects(finishTurn(player), 409);
+
+    await sendMessage(player, "ok, my answer");
+    assert.equal((await game(player)).answered, true, "the player's own message unlocks it");
+    await finishTurn(player);
+
+    // the next round starts locked again, even though the player has already said things before
+    assert.equal((await game(player)).answered, false);
+    await pickKind(asker, "dare");
+    await drawPrompt(player);
+    assert.equal((await game(asker)).answered, false, "an answer to the last card doesn't carry over");
+    await rejects(finishTurn(asker), 409);
+  });
+
+  it("a prompt that is skipped needs no answer", async () => {
+    const { player, asker } = await play();
+    await pickKind(player, "dare");
+    await drawPrompt(asker);
+    await skipTurn(player); // no message sent, and that is fine
+    assert.equal((await game(asker)).myTurn, true);
+  });
+
+  it("only the player can finish, and finishing passes the turn", async () => {
+    const { player, asker } = await play();
+    await pickKind(player, "truth");
+    await drawPrompt(asker);
+    await sendMessage(player, "my answer");
+    await rejects(finishTurn(asker), 409);
+    await rejects(skipTurn(asker), 409);
+    await finishTurn(player);
+    await rejects(finishTurn(player), 409);
+    assert.deepEqual(await game(asker), { phase: "choose", pick: null, myTurn: true, custom: false, skipsLeft: MAX_SKIPS, answered: false });
+    assert.equal((await game(player)).myTurn, false);
+    const v = await view(player);
+    assert.ok(v.messages.some((m) => m.kind === "info" && m.text === "You finished your turn."));
+  });
+
+  it("allows two skips of bank prompts per person; typed prompts can always be skipped, and a skip passes the turn", async () => {
+    let { player: p, asker: q } = await play();
+    const swap = () => ([p, q] = [q, p]);
+    await turn(p, q, "truth", "draw", "skip"); swap(); // first person: skip 1
+    await turn(p, q, "dare", "draw", "skip"); swap(); // second person: skip 1
+    await turn(p, q, "truth", "draw", "skip"); swap(); // first person: skip 2
+    await turn(p, q, "truth", "draw", "done"); swap(); // second person answers
+    assert.equal((await game(p)).skipsLeft, 0);
+    assert.equal((await game(q)).skipsLeft, 1);
+
+    await pickKind(p, "dare");
+    await drawPrompt(q);
+    await rejects(skipTurn(p), 409); // out of skips
+    assert.equal((await game(p)).phase, "answer", "a refused skip changes nothing");
+    await sendMessage(p, "fine, I will answer this one");
+    await finishTurn(p);
+    swap();
+
+    // the second person still has one skip; a prompt typed by the partner doesn't use it
+    await pickKind(p, "truth");
+    await writePrompt(q, "Tell us the funniest thing that happened to you this week");
+    assert.equal((await game(p)).custom, true);
+    await skipTurn(p);
+    assert.equal((await game(p)).skipsLeft, 1, "skipping a typed prompt is free");
+    swap();
+
+    // and a person with no skips left can still skip a typed prompt
+    await pickKind(p, "truth");
+    await writePrompt(q, "Describe your best meal this week in five words");
+    assert.equal((await game(p)).skipsLeft, 0);
+    await skipTurn(p);
+  });
+
+  it("never repeats a bank prompt within one chat, and repeats rather than breaks when the bank is used up", async () => {
+    let { player: p, asker: q, chatId } = await play();
+    for (let i = 0; i < 20; i++) {
+      await turn(p, q, "truth", "draw", "done");
+      [p, q] = [q, p];
+    }
+    const seen = (await cards(chatId)).map((c) => c.body);
+    assert.equal(seen.length, 20);
+    assert.equal(new Set(seen).size, 20, "no prompt came up twice");
+
+    const db = await getDb();
+    await db.batch(TRUTHS.map((t) => ({ sql: "INSERT INTO messages (chat_id, sender_id, kind, body, created_at) VALUES (?, NULL, 'tod_truth', ?, ?)", args: [chatId, t, Date.now()] })), "write");
+    await run("DELETE FROM rate_limits WHERE key LIKE 'game:%'");
+    await pickKind(p, "truth");
+    await drawPrompt(q); // every truth has been used: a repeat is fine
+    assert.equal((await game(p)).phase, "answer");
+  });
+
+  it("stops when the chat ends", async () => {
+    const { player, asker } = await play();
+    await pickKind(player, "truth");
+    await leaveChat(asker.id);
+    await rejects(drawPrompt(player), 409);
+    await rejects(pickKind(player, "truth"), 409);
+  });
+
+  it("limits how fast the moves can be made", async () => {
+    const { player } = await play();
+    let refused = 0;
+    for (let i = 0; i < 50; i++) {
+      await pickKind(player, "truth").catch((e) => {
+        if (e instanceof ApiError && e.status === 429) refused++;
+      });
+    }
+    assert.ok(refused > 0, "a flood of moves is refused");
+  });
+
+  it("shows the whole game to the admin in a report, with the prompts and who typed them", async () => {
+    const { player, asker } = await play();
+    await turn(player, asker, "dare", "draw", "done");
+    await pickKind(asker, "truth"); // the roles swapped: now the asker is the player
+    await writePrompt(player, "Tell us the funniest thing that happened to you this week");
+    const id = (await reportChat(asker, "weird"))!; // the reporter is whoever is the player now
+    const d = await reportDetail(id);
+    const lines = d.timeline.map((m) => m.text);
+    assert.ok(lines.includes("Truth or Dare chat started"));
+    assert.ok(lines.some((t) => t.startsWith("Dare from the bank: ") && DARES.includes(t.slice("Dare from the bank: ".length))));
+    assert.ok(lines.includes("Truth typed by Reported: Tell us the funniest thing that happened to you this week"));
+    assert.ok(lines.includes("Reporter chose truth"));
+    const mail = reportEmail(d, "https://texttox.fewinfos.com");
+    assert.ok(mail.text.includes("Truth typed by Reported: Tell us the funniest thing that happened to you this week"));
+  });
+
+  it("accepts ordinary prompts and the whole built-in bank passes the same screen", () => {
+    for (const ok of ["What's your number one fear?", "Name a school subject you love", "Describe your favourite city", "Sing the first line of any song"]) {
+      assert.equal(screenPrompt(ok), null, ok);
+    }
+    for (const [name, bank] of [["truths", TRUTHS], ["dares", DARES]] as const) {
+      assert.ok(bank.length >= 100, `${name}: at least a hundred`);
+      assert.equal(new Set(bank).size, bank.length, `${name}: no duplicates`);
+      for (const p of bank) {
+        assert.ok(p.length >= 5 && p.length <= 200, `${name}: length of "${p}"`);
+        assert.equal(screenPrompt(p), null, `${name}: "${p}" should pass the screen`);
+        // The app has no photos, video or voice, so nothing may ask for them (a truth may still mention a past video call).
+        assert.ok(!/\b(photo|selfie|send a picture|video of|voice note|voice message|record yourself)\b/i.test(p), `${name}: text only: "${p}"`);
+      }
+    }
+  });
+
+  it("repairs a database from before Truth or Dare existed, even while the server keeps running", async () => {
+    const db = await getDb();
+    const columns = async () => (await db.execute("PRAGMA table_info(chats)")).rows.map((r) => String(r.name));
+    for (const c of ["mode", "turn_user", "phase", "pick", "custom", "skips_a", "skips_b"]) await db.execute(`ALTER TABLE chats DROP COLUMN ${c}`);
+    assert.ok(!(await columns()).includes("mode"), "the test starts from the old shape");
+
+    // Nobody called migrate(): the first game search runs into the missing columns and repairs them.
+    const { player, asker } = await play();
+    assert.ok((await columns()).includes("mode"));
+    await pickKind(player, "truth");
+    await drawPrompt(asker);
+    assert.equal((await game(player)).phase, "answer");
+    const [a] = await pair(); // ordinary chats still work afterwards
+    assert.equal((await view(a)).game, null);
+  });
+});
+
 describe("public room", () => {
   const count = async (sql: string) => (await one<{ n: number }>(sql))!.n;
   const texts = (r: { messages: { text: string }[] }) => r.messages.map((m) => m.text);

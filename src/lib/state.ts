@@ -1,6 +1,7 @@
 import { nameOf, type User, type Gender } from "./auth";
 import { heartbeat, tryMatch, type Want } from "./chat";
 import { all, one, run } from "./db";
+import { answeredSql, MAX_SKIPS, type Kind } from "./game";
 
 /** How long one poll request may wait for news, and how often the server looks while waiting. */
 export const HOLD_MS = 20_000;
@@ -16,10 +17,24 @@ const SEARCH_ALIVE_MS = 60_000;
 
 export interface MessageView {
   id: number;
-  kind: "msg" | "info";
+  kind: "msg" | "info" | "card";
   mine: boolean;
   text: string;
   at: number;
+  /** Truth or Dare prompt cards only. `forMe`: I am the one who has to answer it. `byAsker`: typed by the other person rather than drawn from the bank. */
+  card?: { type: Kind; forMe: boolean; byAsker: boolean };
+}
+
+/** Where a Truth or Dare game stands. `myTurn`: I am the player this round (the one being asked). The other person is the asker. */
+export interface GameView {
+  phase: "choose" | "ask" | "answer";
+  pick: Kind | null;
+  myTurn: boolean;
+  /** The current prompt was typed by the asker (so skipping it is free). */
+  custom: boolean;
+  skipsLeft: number;
+  /** The player has sent a message since the card appeared, which is what unlocks Done. */
+  answered: boolean;
 }
 
 export interface ChatView {
@@ -28,6 +43,8 @@ export interface ChatView {
   iAmAnonymous: boolean;
   reportedByMe: boolean;
   partner: { revealed: boolean; handle: string | null; online: boolean };
+  /** Set for a Truth or Dare chat, null for an ordinary one. */
+  game: GameView | null;
   messages: MessageView[];
 }
 
@@ -73,8 +90,12 @@ async function position(userId: number): Promise<Position> {
   return { token: "i", status: "idle", chatId: null, want: null };
 }
 
-const INFO_TEXT: Record<string, (mine: boolean) => string> = {
+const INFO_TEXT: Record<string, (mine: boolean, body: string) => string> = {
   connected: () => "You're connected. You are both anonymous - be kind.",
+  tod_start: () => "You're connected for Truth or Dare. You are both anonymous - keep it fun.",
+  tod_pick: (mine, body) => `${mine ? "You chose" : "Your partner chose"} ${body === "dare" ? "dare" : "truth"}.`,
+  tod_done: (mine) => (mine ? "You finished your turn." : "Your partner finished their turn."),
+  tod_skip: (mine) => (mine ? "You skipped." : "Your partner skipped."),
   anon_off: (mine) =>
     mine
       ? "You turned anonymity off. Your partner can now see your username."
@@ -86,9 +107,12 @@ const INFO_TEXT: Record<string, (mine: boolean) => string> = {
 async function chatView(user: User, chatId: string, after: number): Promise<ChatView | null> {
   const c = await one<{
     id: string; user_a: number; a_open: number; b_open: number; status: string; partner_username: string | null; partner_email: string; partner_seen: number; reported_by_me: number;
+    mode: string; turn_user: number | null; phase: GameView["phase"] | null; pick: Kind | null; custom: number; skips_a: number; skips_b: number; answered: number;
   }>(
     `SELECT c.id, c.user_a, c.a_open, c.b_open, c.status, p.username AS partner_username, p.email AS partner_email, p.last_seen AS partner_seen,
-            EXISTS (SELECT 1 FROM reports r WHERE r.chat_id = c.id AND r.reporter_id = ?) AS reported_by_me
+            EXISTS (SELECT 1 FROM reports r WHERE r.chat_id = c.id AND r.reporter_id = ?) AS reported_by_me,
+            c.mode, c.turn_user, c.phase, c.pick, c.custom, c.skips_a, c.skips_b,
+            CASE WHEN c.mode = 'tod' AND c.phase = 'answer' THEN ${answeredSql("c")} ELSE 0 END AS answered
      FROM chats c JOIN users p ON p.id = CASE WHEN c.user_a = ? THEN c.user_b ELSE c.user_a END
      WHERE c.id = ? AND (c.user_a = ? OR c.user_b = ?)`,
     [user.id, user.id, chatId, user.id, user.id],
@@ -98,18 +122,17 @@ async function chatView(user: User, chatId: string, after: number): Promise<Chat
   const iAmA = c.user_a === user.id;
   const partnerRevealed = (iAmA ? c.b_open : c.a_open) === 1;
 
+  // `player`: for a Truth or Dare card, who had to answer it (whoever made the pick just before it).
+  type Row = { id: number; sender_id: number | null; kind: string; body: string; created_at: number; player: number | null };
+  const select = `SELECT m.id, m.sender_id, m.kind, m.body, m.created_at,
+                         CASE WHEN m.kind IN ('tod_truth', 'tod_dare') THEN
+                           (SELECT p.sender_id FROM messages p WHERE p.chat_id = m.chat_id AND p.kind = 'tod_pick' AND p.id < m.id ORDER BY p.id DESC LIMIT 1)
+                         END AS player
+                  FROM messages m WHERE m.chat_id = ?`;
   const rows =
     after > 0
-      ? await all<{ id: number; sender_id: number | null; kind: string; body: string; created_at: number }>(
-          "SELECT id, sender_id, kind, body, created_at FROM messages WHERE chat_id = ? AND id > ? ORDER BY id LIMIT 300",
-          [chatId, after],
-        )
-      : (
-          await all<{ id: number; sender_id: number | null; kind: string; body: string; created_at: number }>(
-            "SELECT id, sender_id, kind, body, created_at FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 300",
-            [chatId],
-          )
-        ).reverse();
+      ? await all<Row>(`${select} AND m.id > ? ORDER BY m.id LIMIT 300`, [chatId, after])
+      : (await all<Row>(`${select} ORDER BY m.id DESC LIMIT 300`, [chatId])).reverse();
 
   return {
     id: c.id,
@@ -122,11 +145,32 @@ async function chatView(user: User, chatId: string, after: number): Promise<Chat
       handle: partnerRevealed ? nameOf({ username: c.partner_username, email: c.partner_email }) : null,
       online: Date.now() - c.partner_seen < PARTNER_ONLINE_MS,
     },
-    messages: rows.map((m) => {
+    game:
+      c.mode === "tod" && c.phase
+        ? {
+            phase: c.phase,
+            pick: c.pick,
+            myTurn: c.turn_user === user.id,
+            custom: c.custom === 1,
+            skipsLeft: Math.max(0, MAX_SKIPS - (iAmA ? c.skips_a : c.skips_b)),
+            answered: c.answered === 1,
+          }
+        : null,
+    messages: rows.map((m): MessageView => {
       const mine = m.sender_id === user.id;
-      return m.kind === "msg"
-        ? { id: m.id, kind: "msg", mine, text: m.body, at: m.created_at }
-        : { id: m.id, kind: "info", mine, text: INFO_TEXT[m.kind]?.(mine) ?? "", at: m.created_at };
+      if (m.kind === "msg") return { id: m.id, kind: "msg", mine, text: m.body, at: m.created_at };
+      if (m.kind === "tod_truth" || m.kind === "tod_dare") {
+        // Never says who typed a prompt, only whether it was me.
+        return {
+          id: m.id,
+          kind: "card",
+          mine,
+          text: m.body,
+          at: m.created_at,
+          card: { type: m.kind === "tod_dare" ? "dare" : "truth", forMe: m.player === user.id, byAsker: m.sender_id !== null },
+        };
+      }
+      return { id: m.id, kind: "info", mine, text: INFO_TEXT[m.kind]?.(mine, m.body) ?? "", at: m.created_at };
     }),
   };
 }

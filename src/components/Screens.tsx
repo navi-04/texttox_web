@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { messageOf, post } from "@/lib/client";
-import { Back, Chevron, Group, Lock, Logo, Person, Shuffle } from "./Icons";
+import { Back, Chevron, Dice, Group, Lock, Logo, Person, Shuffle } from "./Icons";
 
 type Gender = "boy" | "girl";
-export type Want = Gender | "any";
+export type Want = Gender | "any" | "tod";
 
 /** "12 online": signed-in people with the site open. Hidden until there is someone to count. */
 function OnlineCount() {
@@ -161,6 +161,7 @@ export function Home({ handle, gender, onStart, onPublic, onGenderSaved, onLogou
   const cards = [
     { icon: <Lock />, title: "Specific chat", text: "Choose a boy or a girl. Private, one to one.", go: () => setSection("specific") },
     { icon: <Shuffle />, title: "Random chat", text: "Paired with anyone else who picked this.", go: () => start("any") },
+    { icon: <Dice />, title: "Truth or Dare", text: "A quick game with a stranger. Anonymous, one to one.", go: () => start("tod") },
     { icon: <Group />, title: "Public room", text: "One anonymous room for everyone. Messages vanish on their own.", go: onPublic },
   ];
 
@@ -196,7 +197,7 @@ export function Home({ handle, gender, onStart, onPublic, onGenderSaved, onLogou
 }
 
 export function Searching({ want, onCancel }: { want: Want | null; onCancel: () => void }) {
-  const who = want === "girl" ? "a girl" : want === "boy" ? "a boy" : "someone";
+  const who = want === "girl" ? "a girl" : want === "boy" ? "a boy" : want === "tod" ? "someone to play with" : "someone";
   return (
     <main className="x-screen x-center">
       <div className="x-radar" role="status" aria-label="Searching">

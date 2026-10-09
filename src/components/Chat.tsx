@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { messageOf, post } from "@/lib/client";
 import type { ChatView, MessageView } from "@/lib/state";
 import Dialog from "./Dialog";
+import Game from "./Game";
 import { ArrowUp, Back, Flag } from "./Icons";
 
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -48,6 +49,7 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
     try {
       const sent = await post<{ id: number; at: number }>("/api/chat/send", { text });
       onSent({ id: sent.id, kind: "msg", mine: true, text, at: sent.at });
+      if (chat.game) onChanged(); // in a game, sending your answer is what unlocks Done: don't wait for the next poll
     } catch (e) {
       setDraft(text);
       setError(messageOf(e));
@@ -94,8 +96,10 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
     }
   }
 
-  const name = partner.revealed ? partner.handle : "Stranger";
-  const status = ended ? "Chat ended" : `${partner.revealed ? "Username visible" : "Anonymous"} · ${partner.online ? "online" : "offline"}`;
+  const name = (partner.revealed && partner.handle) || "Stranger";
+  const status = ended
+    ? "Chat ended"
+    : `${chat.game ? "Truth or Dare · " : ""}${partner.revealed ? "Username visible" : "Anonymous"} · ${partner.online ? "online" : "offline"}`;
 
   return (
     <div className="x-chat">
@@ -148,6 +152,14 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
             <p key={m.id} className="x-chip">
               {m.text}
             </p>
+          ) : m.kind === "card" && m.card ? (
+            <div key={m.id} className={`x-tod ${m.card.type}`}>
+              <span className="x-tod-tag">
+                {m.card.type === "dare" ? "Dare" : "Truth"} · for {m.card.forMe ? "you" : name}
+              </span>
+              <p>{m.text}</p>
+              <small>{m.card.byAsker ? (m.card.forMe ? `Written by ${name}` : "Written by you") : "From the deck"}</small>
+            </div>
           ) : (
             <div key={m.id} className={`x-b ${m.mine ? "mine" : "theirs"}`}>
               {m.text}
@@ -161,6 +173,11 @@ export default function Chat({ chat, messages, myHandle, onSent, onChanged, onLe
         <p className="x-error" role="alert" style={{ margin: "0 14px 10px" }}>
           {error}
         </p>
+      )}
+
+      {chat.game && !ended && (
+        // A new step starts with a clean panel (nothing half-typed, no old error).
+        <Game key={`${chat.game.phase}:${chat.game.myTurn}:${chat.game.pick}`} game={chat.game} partner={name} onChanged={onChanged} />
       )}
 
       {ended ? (
