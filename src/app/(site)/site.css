@@ -1175,3 +1175,174 @@ p {
   margin: 0 0 12px;
   padding-left: 22px;
 }
+
+/* ---------- replying to a message in the public room ---------- */
+
+.x-log {
+  overflow-x: hidden; /* a message being dragged sideways must not make the list scroll */
+}
+
+.x-brow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 86%;
+  touch-action: pan-y;
+  transition: transform 0.18s ease;
+}
+
+.x-brow.theirs {
+  align-self: flex-start;
+}
+
+.x-brow.mine {
+  align-self: flex-end;
+  flex-direction: row-reverse; /* the reply arrow sits on the inner side of the bubble */
+}
+
+.x-brow .x-b {
+  align-self: auto;
+  max-width: none;
+  min-width: 0;
+}
+
+.x-rbtn {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: var(--s2);
+  color: var(--dim);
+  border: 0;
+  border-radius: 50%;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.x-brow:hover .x-rbtn,
+.x-rbtn:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .x-rbtn {
+    display: none; /* on a phone you swipe instead */
+  }
+}
+
+/* the arrow that appears behind a message while it is being dragged */
+.x-pull {
+  position: absolute;
+  left: -40px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--s3);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.x-quote {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  text-align: left;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.09);
+  border: 0;
+  border-left: 3px solid currentColor;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.x-b.mine .x-quote {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.x-quote strong {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.x-quote span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  opacity: 0.85;
+}
+
+.x-quote.gone {
+  cursor: default;
+}
+
+.x-quote.gone span {
+  font-style: italic;
+  opacity: 0.55;
+}
+
+.x-flash .x-b {
+  animation: x-flash 1.2s ease-out;
+}
+
+@keyframes x-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+  25% {
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.55);
+  }
+}
+
+.x-replybar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px calc(var(--safe-r) + 12px) 8px calc(var(--safe-l) + 12px);
+  background: var(--bg);
+  border-top: 1px solid var(--s2);
+}
+
+.x-replybar + .x-composer {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.x-replybar-b {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  background: var(--s1);
+  border-left: 3px solid var(--fg);
+  border-radius: 12px;
+}
+
+.x-replybar-b strong {
+  font-size: 12.5px;
+}
+
+.x-replybar-b span {
+  font-size: 14px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

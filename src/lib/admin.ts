@@ -4,6 +4,7 @@ import { safeEqual, secret, sha256 } from "./auth";
 import { leaveChat } from "./chat";
 import { all, getDb, one, run } from "./db";
 import { ApiError } from "./errors";
+import { getPublicTtlHours, isPublicTtl, publicTtlMs, storePublicTtlHours, type PublicTtlHours } from "./settings";
 
 /* ------------------------------------------------------------------- login */
 
@@ -363,13 +364,13 @@ export interface PublicMessageRow {
   at: number;
 }
 
-/** The public room's messages that are still live (newest first). Only the admin ever sees who wrote them. */
+/** The public room's messages that have not expired yet (newest first). Only the admin ever sees who wrote them. */
 export async function listPublicMessages(): Promise<PublicMessageRow[]> {
   const rows = await all<Raw>(
     `SELECT m.id, m.user_id, m.body, m.created_at, u.username, u.email, u.banned
      FROM public_messages m JOIN users u ON u.id = m.user_id
      WHERE m.created_at > ? ORDER BY m.id DESC LIMIT 200`,
-    [Date.now() - 48 * 60 * 60 * 1000],
+    [Date.now() - (await publicTtlMs())],
   );
   return rows.map((r) => ({
     id: Number(r.id),
@@ -385,6 +386,28 @@ export async function listPublicMessages(): Promise<PublicMessageRow[]> {
 export async function deletePublicMessage(id: number): Promise<void> {
   if ((await run("DELETE FROM public_messages WHERE id = ?", [id])) === 0) throw new ApiError(404, "Message not found.");
   await log("Deleted public message", `#${id}`);
+}
+
+/**
+ * Sets how long public-room messages live (12, 24, 36 or 48 hours). Anything already older than the new limit is
+ * deleted right away, so shortening takes effect at once and lengthening later can't bring those messages back.
+ */
+export async function setPublicTtl(hours: unknown): Promise<{ hours: PublicTtlHours; removed: number }> {
+  if (!isPublicTtl(hours)) throw new ApiError(400, "Choose 12, 24, 36 or 48 hours.");
+  const before = await getPublicTtlHours();
+  await storePublicTtlHours(hours);
+  const removed = await run("DELETE FROM public_messages WHERE created_at < ?", [Date.now() - hours * 60 * 60 * 1000]);
+  if (hours !== before) {
+    await log("Changed public room lifetime", `${before} h to ${hours} h${removed ? `, ${removed} old message${removed === 1 ? "" : "s"} deleted` : ""}`);
+  }
+  return { hours, removed };
+}
+
+/** Empties the public room: every message, from everyone. Accounts are untouched. Returns how many were removed. */
+export async function deleteAllPublicMessages(): Promise<number> {
+  const removed = await run("DELETE FROM public_messages");
+  await log("Cleared the public room", `${removed} message${removed === 1 ? "" : "s"}`);
+  return removed;
 }
 
 /**

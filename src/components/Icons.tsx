@@ -80,3 +80,15 @@ export const Person = ({ size = 28 }: P) => (
     <path d="M5 20a7 7 0 0114 0" />
   </svg>
 );
+
+export const Reply = ({ size = 18 }: P) => (
+  <svg {...base(size)}>
+    <path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" />
+  </svg>
+);
+
+export const Close = ({ size = 18 }: P) => (
+  <svg {...base(size)}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+);

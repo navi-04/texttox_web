@@ -29,7 +29,7 @@ export default function PrivacyPolicy() {
       <ul>
         <li>Your chats are anonymous. Other people never see your email, only a username, and only if you choose to show it.</li>
         <li>Private chat messages are deleted as soon as both people have left the chat, and in any case after 24 hours.</li>
-        <li>Public room messages disappear after 48 hours.</li>
+        <li>Public room messages disappear automatically, after 12 to 48 hours at most (the time is set by the site admin).</li>
         <li>We have no advertising, no analytics and no tracking. We do not sell or share your data.</li>
         <li>You can have your account and everything tied to it deleted at any time (see &ldquo;Deleting your data&rdquo;).</li>
       </ul>
@@ -82,7 +82,7 @@ export default function PrivacyPolicy() {
           <tr>
             <td>Public room messages</td>
             <td>To show them to everyone in the room. Other people see only the text and the time, never who wrote it. We link each message to its account so we can remove abuse.</td>
-            <td>Hidden after 48 hours and then deleted.</td>
+            <td>Hidden after a set time of 12 to 48 hours at most, and then deleted.</td>
           </tr>
           <tr>
             <td>Reports</td>

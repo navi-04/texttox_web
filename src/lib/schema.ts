@@ -81,11 +81,18 @@ export const SCHEMA: string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_once ON reports (chat_id, reporter_id)`,
 
-  // The public room. Messages are only ever shown for PUBLIC_TTL_MS; user_id is for moderation and is never sent to browsers.
+  // Settings the admin can change (see settings.ts).
+  `CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT    PRIMARY KEY,
+    value       TEXT    NOT NULL
+  )`,
+
+  // The public room. Messages are only shown for the admin's chosen number of hours (12 to 48); user_id is for moderation and is never sent to browsers.
   `CREATE TABLE IF NOT EXISTS public_messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,
     body        TEXT    NOT NULL,
+    reply_to    INTEGER,                            -- the message this one answers (NULL = a plain message)
     created_at  INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_public_created ON public_messages (created_at)`,

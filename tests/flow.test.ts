@@ -21,6 +21,7 @@ import { ApiError } from "../src/lib/errors";
 import { cleanup } from "../src/lib/maintenance";
 import { allow } from "../src/lib/ratelimit";
 import { pollPublic, sendPublic } from "../src/lib/public";
+import { getPublicTtlHours, PUBLIC_TTL_OPTIONS } from "../src/lib/settings";
 import { onlineCount, pollState } from "../src/lib/state";
 
 let seq = 0;
@@ -623,7 +624,7 @@ describe("online count", () => {
 });
 
 import {
-  adminLogin, deleteChat, deletePublicMessage, deleteUser, isAdminUsername, listPublicMessages, dismissReport, endUserChat, isAdmin, listReports, listUsers, overview, reportDetail, setBlocked,
+  adminLogin, setPublicTtl, deleteAllPublicMessages, deleteChat, deletePublicMessage, deleteUser, isAdminUsername, listPublicMessages, dismissReport, endUserChat, isAdmin, listReports, listUsers, overview, reportDetail, setBlocked,
   setUserGender, signOutEverywhere, userDetail,
 } from "../src/lib/admin";
 import { migrate } from "../src/lib/db";
@@ -997,6 +998,186 @@ describe("public room", () => {
 
     await deleteUser(b.id);
     assert.ok(!texts(await pollPublic(a, 0)).includes("nice one"));
+  });
+
+  it("lets people reply to a message, showing the quoted text and only 'you' or 'anonymous' as its author", async () => {
+    const a = await signUp(null);
+    const b = await signUp(null);
+    const first = await sendPublic(a, "who is up for a quiz?");
+    const reply = await sendPublic(b, "me!", first.id);
+    assert.deepEqual(reply.reply, { id: first.id, text: "who is up for a quiz?", mine: false }, "the sender gets the quote straight back");
+
+    const seenByA = (await pollPublic(a, 0)).messages.find((m) => m.id === reply.id)!;
+    const seenByB = (await pollPublic(b, 0)).messages.find((m) => m.id === reply.id)!;
+    assert.deepEqual(seenByA.reply, { id: first.id, text: "who is up for a quiz?", mine: true }, "a sees that b answered a's own message");
+    assert.deepEqual(seenByB.reply, { id: first.id, text: "who is up for a quiz?", mine: false });
+    assert.equal(seenByA.mine, false);
+    assert.equal(seenByB.mine, true);
+    for (const v of [seenByA, seenByB]) {
+      assert.deepEqual(Object.keys(v.reply!).sort(), ["id", "mine", "text"], "nothing that identifies the author");
+      const json = JSON.stringify(v);
+      for (const secret of [a.email, a.username!, b.email, b.username!]) assert.ok(!json.includes(secret), "identity leaked");
+    }
+    assert.equal((await pollPublic(a, 0)).messages.find((m) => m.id === first.id)!.reply, undefined, "a plain message has no reply");
+
+    // you can answer yourself, and answers to answers quote only the one above them
+    const mine = await sendPublic(a, "following up", reply.id);
+    assert.deepEqual(mine.reply, { id: reply.id, text: "me!", mine: false });
+    const self = await sendPublic(a, "and a note to self", first.id);
+    assert.equal(self.reply!.mine, true);
+
+    // it also arrives through the long poll, like any new message
+    const waiting = pollPublic(b, self.id);
+    setTimeout(() => void sendPublic(a, "live reply", reply.id), 200);
+    const live = (await waiting).messages[0];
+    assert.equal(live.text, "live reply");
+    assert.equal(live.reply!.text, "me!");
+  });
+
+  it("quotes at most 140 characters, and says so with an ellipsis", async () => {
+    const a = await signUp(null);
+    const long = await sendPublic(a, "x".repeat(400));
+    const reply = await sendPublic(a, "re: long", long.id);
+    assert.equal(reply.reply!.text!.length, 141);
+    assert.ok(reply.reply!.text!.endsWith("…"));
+    assert.equal((await sendPublic(a, "short one")).id > 0, true);
+  });
+
+  it("rejects a reply to something that isn't there, and bad ids", async () => {
+    const a = await signUp(null);
+    const target = await sendPublic(a, "reply to me");
+    for (const bad of [0, -3, 1.5, "5", {}, true, NaN]) {
+      await assert.rejects(sendPublic(a, "reply", bad), (e) => e instanceof ApiError && e.status === 400, String(bad));
+    }
+    await assert.rejects(sendPublic(a, "reply", 999_999), (e) => e instanceof ApiError && e.status === 409, "no such message");
+    await run("UPDATE public_messages SET created_at = ? WHERE id = ?", [Date.now() - 72 * 3600_000, target.id]);
+    await assert.rejects(sendPublic(a, "reply", target.id), (e) => e instanceof ApiError && e.status === 409, "an expired message can't be answered");
+    assert.equal((await sendPublic(a, "null means no reply", null)).reply, undefined);
+    assert.equal((await sendPublic(a, "so does leaving it out")).reply, undefined);
+  });
+
+  it("shows a reply whose original was deleted or expired as 'gone', and keeps the reply", async () => {
+    const a = await signUp(null);
+    const b = await signUp(null);
+    const gone = await sendPublic(a, "this will be deleted");
+    const old = await sendPublic(a, "this will expire");
+    const r1 = await sendPublic(b, "answer one", gone.id);
+    const r2 = await sendPublic(b, "answer two", old.id);
+
+    await deletePublicMessage(gone.id);
+    await run("UPDATE public_messages SET created_at = ? WHERE id = ?", [Date.now() - 72 * 3600_000, old.id]);
+    const shown = (await pollPublic(b, 0)).messages;
+    for (const [id, text] of [[r1.id, "answer one"], [r2.id, "answer two"]] as const) {
+      const m = shown.find((x) => x.id === id)!;
+      assert.equal(m.text, text, "the reply itself stays");
+      assert.equal(m.reply!.text, null, "the quoted text does not");
+      assert.equal(m.reply!.mine, false);
+    }
+    assert.ok(!JSON.stringify(shown).includes("this will be deleted"), "deleted text is not sent along");
+    assert.ok(!JSON.stringify(shown).includes("this will expire"), "expired text is not sent along");
+  });
+
+  it("works on a database from before replies existed", async () => {
+    const db = await getDb();
+    await db.execute("ALTER TABLE public_messages DROP COLUMN reply_to");
+    const a = await signUp(null);
+    const first = await sendPublic(a, "written before the upgrade");
+    const reply = await sendPublic(a, "written after it", first.id);
+    assert.equal(reply.reply!.text, "written before the upgrade");
+    assert.equal((await pollPublic(a, 0)).messages.find((m) => m.id === reply.id)!.reply!.id, first.id);
+  });
+
+  it("lets the admin choose how long messages live: 12, 24, 36 or 48 hours", async () => {
+    const a = await signUp(null);
+    const H = 3600_000;
+    const age = async (text: string, hours: number) => {
+      const id = (await sendPublic(a, text)).id;
+      await run("UPDATE public_messages SET created_at = ? WHERE id = ?", [Date.now() - hours * H, id]);
+      return id;
+    };
+    try {
+      assert.deepEqual([...PUBLIC_TTL_OPTIONS], [12, 24, 36, 48]);
+      assert.equal(await getPublicTtlHours(), 48, "starts at 48");
+      await age("ttl: 40 hours old", 40);
+      await age("ttl: 20 hours old", 20);
+      await age("ttl: 6 hours old", 6);
+      const shown = async () => (await pollPublic(a, 0)).messages.map((m) => m.text).filter((t) => t.startsWith("ttl:"));
+      assert.deepEqual(await shown(), ["ttl: 40 hours old", "ttl: 20 hours old", "ttl: 6 hours old"]);
+      assert.equal((await pollPublic(a, 0)).ttlHours, 48, "the room is told the lifetime");
+
+      // shorter: what is now too old goes at once
+      const r24 = await setPublicTtl(24);
+      assert.equal(r24.hours, 24);
+      assert.ok(r24.removed >= 1);
+      assert.deepEqual(await shown(), ["ttl: 20 hours old", "ttl: 6 hours old"]);
+      assert.equal((await pollPublic(a, 0)).ttlHours, 24);
+      assert.equal((await listPublicMessages()).filter((m) => m.text.startsWith("ttl:")).length, 2, "the admin list follows it too");
+      assert.equal(await count("SELECT COUNT(*) AS n FROM public_messages WHERE body = 'ttl: 40 hours old'"), 0, "really deleted, not just hidden");
+
+      await setPublicTtl(12);
+      assert.deepEqual(await shown(), ["ttl: 6 hours old"]);
+
+      // longer: nothing comes back, and new messages live longer
+      await setPublicTtl(36);
+      assert.deepEqual(await shown(), ["ttl: 6 hours old"], "deleted messages stay deleted");
+      await age("ttl: 30 hours old", 30);
+      assert.ok((await shown()).includes("ttl: 30 hours old"), "a 30 hour old message is fine under 36 hours");
+      await setPublicTtl(24);
+      assert.ok(!(await shown()).includes("ttl: 30 hours old"));
+
+      // the periodic cleanup uses the same limit
+      await setPublicTtl(48);
+      const old = await age("ttl: cleanup test", 30);
+      await setPublicTtl(24); // deletes it already; put it back to prove cleanup alone does the job
+      await run("INSERT INTO public_messages (id, user_id, body, created_at) VALUES (?, ?, 'ttl: cleanup test', ?)", [old, a.id, Date.now() - 30 * H]);
+      await cleanup();
+      assert.equal(await count("SELECT COUNT(*) AS n FROM public_messages WHERE id = " + old), 0);
+
+      assert.equal(await count("SELECT COUNT(*) AS n FROM admin_log WHERE action = 'Changed public room lifetime'"), 6, "each change is logged");
+      assert.equal((await one<{ value: string }>("SELECT value FROM settings WHERE key = 'public_ttl_hours'"))!.value, "24", "stored in the database");
+    } finally {
+      await setPublicTtl(48);
+    }
+  });
+
+  it("repairs a missing table by itself, for a server that started before the table existed", async () => {
+    const db = await getDb();
+    await db.execute("DROP TABLE settings");
+    // an ordinary query, as the admin page makes it: it must work and not fail with "no such table"
+    assert.equal(await one("SELECT value FROM settings WHERE key = 'public_ttl_hours'"), undefined);
+    assert.equal(await run("INSERT INTO settings (key, value) VALUES ('probe', '1')"), 1);
+    await run("DELETE FROM settings WHERE key = 'probe'");
+    // other errors are not swallowed
+    await assert.rejects(one("SELECT * FROM no_such_thing_anywhere"), /no such table/i);
+  });
+
+  it("only accepts the four allowed lifetimes", async () => {
+    for (const bad of [0, 1, 13, 47, 49, 72, "24", null, undefined, 24.5, NaN]) {
+      await assert.rejects(setPublicTtl(bad), (e) => e instanceof ApiError && e.status === 400, String(bad));
+    }
+    assert.equal(await getPublicTtlHours(), 48, "unchanged by bad requests");
+  });
+
+  it("lets the admin empty the whole room at once, including old rows, without touching accounts", async () => {
+    const a = await signUp(null);
+    const b = await signUp(null);
+    await sendPublic(a, "one");
+    await sendPublic(b, "two");
+    const old = (await sendPublic(a, "three, long ago")).id;
+    await run("UPDATE public_messages SET created_at = ? WHERE id = ?", [Date.now() - 72 * 3600_000, old]);
+    const before = await count("SELECT COUNT(*) AS n FROM public_messages");
+    assert.ok(before >= 3);
+
+    assert.equal(await deleteAllPublicMessages(), before);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM public_messages"), 0);
+    assert.deepEqual(texts(await pollPublic(a, 0)), []);
+    assert.deepEqual(await listPublicMessages(), []);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE id IN (" + a.id + "," + b.id + ")"), 2, "accounts stay");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM admin_log WHERE action = 'Cleared the public room'"), 1, "it is logged");
+
+    assert.equal(await deleteAllPublicMessages(), 0, "an empty room is fine");
+    await sendPublic(a, "the room works again"); // people can post straight away
+    assert.deepEqual(texts(await pollPublic(b, 0)), ["the room works again"]);
   });
 });
 

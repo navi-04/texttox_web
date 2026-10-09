@@ -38,6 +38,7 @@ export async function migrate(client: Client): Promise<void> {
   await ensureColumn(client, "users", "password_hash", "TEXT");
   await ensureColumn(client, "otps", "verified", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(client, "users", "username", "TEXT");
+  await ensureColumn(client, "public_messages", "reply_to", "INTEGER");
   // After the column exists. Several NULLs are fine in a unique index, so old accounts without a username don't clash.
   await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)");
 }
@@ -58,9 +59,28 @@ export function getDb(): Promise<Client> {
 
 export type Row = Record<string, string | number | null>;
 
-export async function all<T = Row>(sql: string, args: InValue[] = []): Promise<T[]> {
+/**
+ * The tables are created once, when the connection is first opened. A server that was already running when a newer
+ * version added a table or column (a dev server that hot-reloads, say) would then fail with "no such table". So if a
+ * query hits exactly that, run the (idempotent) setup again, once, and retry. Other errors pass straight through.
+ */
+let healing: Promise<void> | undefined;
+async function withRepair<T>(work: (db: Client) => Promise<T>): Promise<T> {
   const db = await getDb();
-  const res = await db.execute({ sql, args });
+  try {
+    return await work(db);
+  } catch (e) {
+    if (!/no such (table|column)|has no column named/i.test(String(e))) throw e;
+    healing ??= migrate(db).finally(() => {
+      healing = undefined;
+    });
+    await healing;
+    return work(db);
+  }
+}
+
+export async function all<T = Row>(sql: string, args: InValue[] = []): Promise<T[]> {
+  const res = await withRepair((db) => db.execute({ sql, args }));
   return res.rows as unknown as T[];
 }
 
@@ -70,6 +90,5 @@ export async function one<T = Row>(sql: string, args: InValue[] = []): Promise<T
 
 /** Runs a write and returns how many rows it changed. */
 export async function run(sql: string, args: InValue[] = []): Promise<number> {
-  const db = await getDb();
-  return (await db.execute({ sql, args })).rowsAffected;
+  return (await withRepair((db) => db.execute({ sql, args }))).rowsAffected;
 }

@@ -1,4 +1,4 @@
-import { deleteChat, deletePublicMessage, deleteUser, dismissReport, endUserChat, setBlocked, setUserGender, signOutEverywhere } from "@/lib/admin";
+import { deleteAllPublicMessages, deleteChat, deletePublicMessage, deleteUser, dismissReport, endUserChat, setBlocked, setPublicTtl, setUserGender, signOutEverywhere } from "@/lib/admin";
 import { ApiError } from "@/lib/errors";
 import { adminOnly, readBody } from "@/lib/http";
 
@@ -29,6 +29,13 @@ export const POST = adminOnly(async (req) => {
       return deleteChat(b.chatId);
     case "deletepublic":
       return deletePublicMessage(id(b.messageId, "message"));
+    case "setpublicttl":
+      // { hours: 12 | 24 | 36 | 48 }: how long public-room messages live. Anything older than that is deleted now.
+      return setPublicTtl(b.hours);
+    case "deleteallpublic":
+      // Same rule as deleting a user: the screen asks for DELETE, and the server checks it too.
+      if (b.confirm !== "DELETE") throw new ApiError(400, "Type DELETE to confirm.");
+      return { removed: await deleteAllPublicMessages() };
     case "deleteuser":
       // The screen asks the admin to type DELETE; check here too so a stray request can't remove anyone.
       if (b.confirm !== "DELETE") throw new ApiError(400, "Type DELETE to confirm.");

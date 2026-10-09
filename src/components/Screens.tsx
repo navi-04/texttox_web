@@ -161,7 +161,7 @@ export function Home({ handle, gender, onStart, onPublic, onGenderSaved, onLogou
   const cards = [
     { icon: <Lock />, title: "Specific chat", text: "Choose a boy or a girl. Private, one to one.", go: () => setSection("specific") },
     { icon: <Shuffle />, title: "Random chat", text: "Paired with anyone else who picked this.", go: () => start("any") },
-    { icon: <Group />, title: "Public room", text: "One anonymous room for everyone. Gone after 48 hours.", go: onPublic },
+    { icon: <Group />, title: "Public room", text: "One anonymous room for everyone. Messages vanish on their own.", go: onPublic },
   ];
 
   return (
